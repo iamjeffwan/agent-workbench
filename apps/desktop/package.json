@@ -6,10 +6,12 @@
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron ."
+    "start": "node ./scripts/run-electron.mjs",
+    "dev": "node ./scripts/run-electron.mjs",
+    "shortcut": "node ./scripts/create-desktop-shortcut.mjs"
   },
   "dependencies": {
+    "@agent-workbench/project-observe": "workspace:*",
     "@agent-workbench/timeline": "workspace:*"
   },
   "devDependencies": {

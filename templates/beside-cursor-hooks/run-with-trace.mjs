@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // pathToFileURL used for workbench-home dynamic imports
 
@@ -17,19 +18,28 @@ const workbenchHome = process.env.AGENT_WORKBENCH_HOME
   ? path.resolve(process.env.AGENT_WORKBENCH_HOME)
   : path.resolve(repoRoot, '../agent-workbench');
 
-const { redactCredentialText } = await import(
-  pathToFileURL(
-    path.join(workbenchHome, 'packages/agent-workbench-security/index.mjs'),
-  ).href,
-);
-const { mirrorChildExit, spawnShellCommand } = await import(
-  pathToFileURL(
-    path.join(
-      workbenchHome,
-      'packages/program-tracer/scripts/process-launch.mjs',
-    ),
-  ).href,
-);
+let redactCredentialText = () => '[REDACTED]';
+let mirrorChildExit = fallbackMirrorChildExit;
+let spawnShellCommand = fallbackSpawnShellCommand;
+let sharedModulesReady = false;
+try {
+  ({ redactCredentialText } = await import(
+    pathToFileURL(
+      path.join(workbenchHome, 'packages/agent-workbench-security/index.mjs'),
+    ).href,
+  ));
+  ({ mirrorChildExit, spawnShellCommand } = await import(
+    pathToFileURL(
+      path.join(
+        workbenchHome,
+        'packages/program-tracer/scripts/process-launch.mjs',
+      ),
+    ).href,
+  ));
+  sharedModulesReady = true;
+} catch {
+  // The original command still runs below, without tracing or raw import errors.
+}
 
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -97,6 +107,10 @@ function main() {
     'packages/program-tracer/dist/guest/preload.js',
   );
 
+  if (!sharedModulesReady) {
+    console.error('[run-with-trace] tracing unavailable; running original command');
+  }
+
   if (!fs.existsSync(preload)) {
     console.error(
       redactCredentialText(`[run-with-trace] preload missing: ${preload}`),
@@ -151,6 +165,39 @@ function stringField(value, key, required = true) {
     throw new Error(`Missing payload field: ${key}`);
   }
   return field || null;
+}
+
+function fallbackSpawnShellCommand(command, options) {
+  if (process.platform === 'win32') {
+    const shell = options.env?.ComSpec || process.env.ComSpec || 'cmd.exe';
+    return spawn(shell, ['/d', '/s', '/c', `"${command}"`], {
+      ...options,
+      shell: false,
+      windowsVerbatimArguments: true,
+    });
+  }
+  return spawn('/bin/sh', ['-c', command], { ...options, shell: false });
+}
+
+function fallbackMirrorChildExit(child, label) {
+  let failedToStart = false;
+  child.once('error', () => {
+    failedToStart = true;
+    console.error(`[${label}] failed to start`);
+    process.exitCode = 1;
+  });
+  child.once('exit', (code, signal) => {
+    if (failedToStart) return;
+    if (signal) {
+      try {
+        process.kill(process.pid, signal);
+      } catch {
+        process.exitCode = 1;
+      }
+      return;
+    }
+    process.exitCode = code ?? 1;
+  });
 }
 
 try {

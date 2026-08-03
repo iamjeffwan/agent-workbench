@@ -70,6 +70,28 @@ const CREDENTIAL_KEY_SUFFIXES = [
 ];
 const CREDENTIAL_KEY_WITH_QUALIFIER =
   /(?:^|_)(?:password|passwd|pwd|secret|token|authorization|cookie|api_key|access_key|private_key|client_secret|session_id)(?:_(?:header|hash|backup|value|credential|credentials|raw))+$/;
+const STRICT_TEXT_KEYS = new Set([
+  'args',
+  'argv',
+  'cmd',
+  'command',
+  'command_line',
+  'command_text',
+  'diagnostic',
+  'diagnostics',
+  'error',
+  'error_message',
+  'error_text',
+  'exception',
+  'failure',
+  'failure_reason',
+  'powershell',
+  'shell',
+  'shell_command',
+  'stack',
+  'stack_trace',
+  'stderr',
+]);
 
 export function isCredentialKey(key) {
   const normalized = normalizeKey(key);
@@ -82,18 +104,42 @@ export function isCredentialKey(key) {
   );
 }
 
-export function redactCredentialText(text) {
+export function redactCredentialText(text, options = {}) {
   if (typeof text !== 'string' || text.length === 0) {
     return text;
   }
 
+  const context =
+    typeof options.field === 'string' && isStrictTextKey(options.field)
+      ? 'command'
+      : (options.context ?? 'command');
+  const redactQuoted = (match, prefix, quote, value, offset, input) =>
+    redactQuotedAssignment(
+      match,
+      prefix,
+      quote,
+      value,
+      offset,
+      input,
+      context,
+    );
+  const redactUnquoted = (match, prefix, value, offset, input) =>
+    redactUnquotedAssignment(
+      match,
+      prefix,
+      value,
+      offset,
+      input,
+      context,
+    );
+
   return text
     .replace(PRIVATE_KEY_BLOCK, REDACTED_VALUE)
     .replace(AUTHORIZATION_VALUE, (_match, prefix) => `${prefix}${REDACTED_VALUE}`)
-    .replace(QUOTED_CREDENTIAL_ASSIGNMENT, redactQuotedAssignment)
-    .replace(CREDENTIAL_ASSIGNMENT, redactUnquotedAssignment)
-    .replace(FLEXIBLE_QUOTED_CREDENTIAL_ASSIGNMENT, redactQuotedAssignment)
-    .replace(FLEXIBLE_CREDENTIAL_ASSIGNMENT, redactUnquotedAssignment)
+    .replace(QUOTED_CREDENTIAL_ASSIGNMENT, redactQuoted)
+    .replace(CREDENTIAL_ASSIGNMENT, redactUnquoted)
+    .replace(FLEXIBLE_QUOTED_CREDENTIAL_ASSIGNMENT, redactQuoted)
+    .replace(FLEXIBLE_CREDENTIAL_ASSIGNMENT, redactUnquoted)
     .replace(
       QUOTED_CREDENTIAL_ARGUMENT,
       (_match, prefix, quote) => `${prefix}${quote}${REDACTED_VALUE}${quote}`,
@@ -106,12 +152,12 @@ export function redactCredentialText(text) {
 }
 
 export function redactCredentials(value) {
-  return redactValue(value, new WeakSet());
+  return redactValue(value, new WeakSet(), 'auto');
 }
 
-function redactValue(value, seen) {
+function redactValue(value, seen, context) {
   if (typeof value === 'string') {
-    return redactCredentialText(value);
+    return redactCredentialText(value, { context });
   }
   if (value === null || typeof value !== 'object') {
     return value;
@@ -122,14 +168,18 @@ function redactValue(value, seen) {
   seen.add(value);
 
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item, seen));
+    return value.map((item) => redactValue(item, seen, context));
   }
 
   const output = {};
   for (const [key, nested] of Object.entries(value)) {
     output[key] = isCredentialKey(key)
       ? REDACTED_VALUE
-      : redactValue(nested, seen);
+      : redactValue(
+          nested,
+          seen,
+          context === 'command' || isStrictTextKey(key) ? 'command' : 'auto',
+        );
   }
   return output;
 }
@@ -142,19 +192,44 @@ function normalizeKey(key) {
     .toLowerCase();
 }
 
-function redactQuotedAssignment(match, prefix, quote, value, offset, input) {
-  return looksLikeSourceAssignment(match, prefix, value, offset, input)
+function isStrictTextKey(key) {
+  const normalized = normalizeKey(key);
+  return (
+    STRICT_TEXT_KEYS.has(normalized) ||
+    normalized.startsWith('error_') ||
+    normalized.startsWith('exception_') ||
+    normalized.startsWith('failure_')
+  );
+}
+
+function redactQuotedAssignment(
+  match,
+  prefix,
+  quote,
+  value,
+  offset,
+  input,
+  context,
+) {
+  return looksLikeSourceAssignment(match, prefix, value, offset, input, context)
     ? match
     : `${prefix}${quote}${REDACTED_VALUE}${quote}`;
 }
 
-function redactUnquotedAssignment(match, prefix, value, offset, input) {
-  return looksLikeSourceAssignment(match, prefix, value, offset, input)
+function redactUnquotedAssignment(match, prefix, value, offset, input, context) {
+  return looksLikeSourceAssignment(match, prefix, value, offset, input, context)
     ? match
     : `${prefix}${REDACTED_VALUE}`;
 }
 
-function looksLikeSourceAssignment(match, prefix, value, offset, input) {
+function looksLikeSourceAssignment(match, prefix, value, offset, input, context) {
+  if (context === 'command') {
+    return false;
+  }
+  if (context === 'source') {
+    return true;
+  }
+
   const lineStart = input.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
   const before = input.slice(lineStart, offset);
   const after = input.slice(offset + match.length);

@@ -8,6 +8,7 @@ async function main() {
     DEEPSEEK_API_KEY: 'sk-test-1234567890abcdef',
     accessToken: 'access-secret',
     command: 'TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz node app.js',
+    shellCommand: "token='abc123';",
     content: 'A token budget is ordinary product text.',
     fail: mode === 'error',
   };

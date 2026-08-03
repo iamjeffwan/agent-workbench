@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, '../../..');
+const templateHook = path.join(
+  repoRoot,
+  'templates/beside-cursor-hooks/inject-shell-trace.mjs',
+);
 
 test('Cursor shell injection passes dynamic values in one encoded payload', () => {
   const command = 'node app.js && node verify.js';
@@ -67,6 +71,30 @@ test('Cursor shell injection fails open when shared modules are unavailable', ()
       encoding: 'utf8',
     },
   );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {});
+  assert.doesNotMatch(result.stderr, new RegExp(secret));
+});
+
+test('deployed Cursor shell injection template fails open', () => {
+  const secret = 'sk-test-1234567890abcdef';
+  const result = spawnSync(process.execPath, [templateHook], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      AGENT_WORKBENCH_HOME: path.join(
+        os.tmpdir(),
+        `missing-DEEPSEEK_API_KEY=${secret}`,
+      ),
+    },
+    input: JSON.stringify({
+      tool_name: 'Shell',
+      workspace_roots: [repoRoot],
+      tool_input: { command: 'node app.js' },
+    }),
+    encoding: 'utf8',
+  });
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), {});

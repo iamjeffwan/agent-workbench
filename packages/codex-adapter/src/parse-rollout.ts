@@ -72,7 +72,10 @@ export function parseCodexRollout(sessionFile: string): AgentToolStep[] {
         continue;
       }
       const output = stringOrNull(event.payload.output);
-      existing.output = output === null ? undefined : redactCredentialText(output);
+      existing.output =
+        output === null
+          ? undefined
+          : redactCredentialText(output, { context: 'auto' });
       existing.endedAt = event.timestamp ?? null;
       existing.status = 'completed';
     }

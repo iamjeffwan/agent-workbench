@@ -48,6 +48,23 @@ test('structured credentials are hidden without mutating the input', () => {
   assert.equal(input.account.accessToken, 'access-secret');
 });
 
+test('structured command and error fields use strict text redaction', () => {
+  assert.deepEqual(
+    redactCredentials({
+      command: "token='abc123';",
+      error_message: "password='hunter2';",
+      error: { message: "token='abc123';" },
+      content: 'token="ordinary";',
+    }),
+    {
+      command: `token='${REDACTED_VALUE}';`,
+      error_message: `password='${REDACTED_VALUE}';`,
+      error: { message: `token='${REDACTED_VALUE}';` },
+      content: 'token="ordinary";',
+    },
+  );
+});
+
 test('credential assignments in command text are hidden', () => {
   assert.equal(
     redactCredentialText('DEEPSEEK_API_KEY=sk-test-1234567890abcdef node app.js'),
@@ -101,6 +118,14 @@ test('session credential assignments are hidden', () => {
   assert.equal(
     redactCredentialText("token='secret';"),
     `token='${REDACTED_VALUE}';`,
+  );
+  assert.equal(
+    redactCredentialText("token='abc123';", { context: 'command' }),
+    `token='${REDACTED_VALUE}';`,
+  );
+  assert.equal(
+    redactCredentialText("password='hunter2';", { context: 'command' }),
+    `password='${REDACTED_VALUE}';`,
   );
 });
 
@@ -166,5 +191,5 @@ test('ordinary source and business text are unchanged', () => {
     'this.password = options.password;',
     '// explain the request body',
   ].join('\n');
-  assert.equal(redactCredentialText(source), source);
+  assert.equal(redactCredentialText(source, { context: 'source' }), source);
 });

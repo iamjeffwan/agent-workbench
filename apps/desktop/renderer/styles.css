@@ -90,8 +90,19 @@ button:hover {
 .project-label {
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   word-break: break-all;
+}
+
+.observe-label {
+  color: var(--shell);
+  font-size: 12px;
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+
+.observe-label.warn {
+  color: var(--explore);
 }
 
 .tree {

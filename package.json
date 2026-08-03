@@ -11,7 +11,8 @@
     "bench:diff": "node bench/diff.mjs",
     "view": "pnpm --filter @agent-workbench/program-tracer view",
     "desktop": "pnpm --filter @agent-workbench/desktop start",
-    "desktop:dev": "pnpm --filter @agent-workbench/desktop dev"
+    "desktop:dev": "pnpm --filter @agent-workbench/desktop dev",
+    "desktop:shortcut": "pnpm --filter @agent-workbench/desktop shortcut"
   },
   "packageManager": "pnpm@11.1.2",
   "engines": {

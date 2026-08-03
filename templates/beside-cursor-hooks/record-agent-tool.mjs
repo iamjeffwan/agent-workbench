@@ -18,11 +18,19 @@ const workbenchHome = process.env.AGENT_WORKBENCH_HOME
   ? path.resolve(process.env.AGENT_WORKBENCH_HOME)
   : path.resolve(repoRoot, '../agent-workbench');
 
-const { redactCredentials, redactCredentialText } = await import(
-  pathToFileURL(
-    path.join(workbenchHome, 'packages/agent-workbench-security/index.mjs'),
-  ).href,
-);
+let redactCredentials = () => ({ $summary: 'redaction-unavailable' });
+let redactCredentialText = () => '[REDACTED]';
+let sharedModuleReady = false;
+try {
+  ({ redactCredentials, redactCredentialText } = await import(
+    pathToFileURL(
+      path.join(workbenchHome, 'packages/agent-workbench-security/index.mjs'),
+    ).href,
+  ));
+  sharedModuleReady = true;
+} catch {
+  // Fail open below without printing the potentially sensitive module path.
+}
 
 const MAX_ARG_CHARS = 2_000;
 const MAX_OUTPUT_CHARS = 4_000;
@@ -213,4 +221,8 @@ function stringOrNull(value) {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-main();
+if (sharedModuleReady) {
+  main();
+} else {
+  writeEmpty();
+}

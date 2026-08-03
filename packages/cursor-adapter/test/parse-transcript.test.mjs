@@ -13,7 +13,7 @@ test('Cursor transcripts hide credentials before callers can store them', () => 
 
   assert.deepEqual(step.arguments, {
     accessToken: '[REDACTED]',
-    command: 'DEEPSEEK_API_KEY=[REDACTED] node app.js',
+    command: "DEEPSEEK_API_KEY=[REDACTED] node app.js && token='[REDACTED]';",
     content: 'A token budget is ordinary product text.',
   });
 });

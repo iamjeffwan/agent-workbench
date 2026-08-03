@@ -32,7 +32,10 @@ test('observed sync and async calls preserve results, nesting, and safe snapshot
   assert.equal(inner.processOriginId, 'trace-e2e-success');
 
   const stored = JSON.stringify(records);
-  assert.doesNotMatch(stored, /sk-test-1234567890abcdef|access-secret|ghp_1234567890abcdefghijklmnopqrstuvwxyz/);
+  assert.doesNotMatch(
+    stored,
+    /sk-test-1234567890abcdef|access-secret|ghp_1234567890abcdefghijklmnopqrstuvwxyz|abc123/,
+  );
   assert.match(stored, /\[REDACTED\]/);
   assert.match(stored, /A token budget is ordinary product text\./);
 });

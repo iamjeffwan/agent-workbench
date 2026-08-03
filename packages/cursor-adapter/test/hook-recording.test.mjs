@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, '../../..');
+const templateHook = path.join(
+  repoRoot,
+  'templates/beside-cursor-hooks/record-agent-tool.mjs',
+);
 
 test('Cursor hook hides credentials before appending an agent step', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workbench-hook-'));
@@ -20,7 +24,8 @@ test('Cursor hook hides credentials before appending an agent step', () => {
     workspace_roots: [workspace],
     tool_input: {
       DEEPSEEK_API_KEY: 'sk-test-1234567890abcdef',
-      command: 'TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz node app.js',
+      command:
+        "TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz node app.js && token='abc123';",
       content: 'A token budget is ordinary product text.',
     },
     tool_output: 'Authorization: Bearer abc.def.ghi',
@@ -37,7 +42,7 @@ test('Cursor hook hides credentials before appending an agent step', () => {
   const step = JSON.parse(fs.readFileSync(outPath, 'utf8').trim());
   assert.deepEqual(step.arguments, {
     DEEPSEEK_API_KEY: '[REDACTED]',
-    command: 'TOKEN=[REDACTED] node app.js',
+    command: "TOKEN=[REDACTED] node app.js && token='[REDACTED]';",
     content: 'A token budget is ordinary product text.',
   });
   assert.equal(step.output, 'Authorization: [REDACTED]');
@@ -52,6 +57,36 @@ test('synthetic Cursor tool ids do not depend on credential values', () => {
   const second = recordWithoutToolId('second-secret');
 
   assert.equal(first.id, second.id);
+});
+
+test('Cursor failure errors use strict text redaction before storage', () => {
+  const workspace = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-workbench-hook-failure-'),
+  );
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, '.cursor/hooks/record-agent-tool.mjs')],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'postToolUseFailure',
+        tool_name: 'Shell',
+        tool_use_id: 'tool_failure',
+        workspace_roots: [workspace],
+        tool_input: { command: 'node app.js' },
+        error_message: "token='abc123';",
+      }),
+      encoding: 'utf8',
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const step = JSON.parse(
+    fs.readFileSync(
+      path.join(workspace, '.agent-workbench', 'agent-steps.jsonl'),
+      'utf8',
+    ),
+  );
+  assert.equal(step.output.error_message, "token='[REDACTED]';");
 });
 
 test('Cursor recording hook fails open when shared modules are unavailable', () => {
@@ -89,6 +124,33 @@ test('Cursor recording hook fails open when shared modules are unavailable', () 
     ),
     false,
   );
+});
+
+test('deployed Cursor recording template fails open', () => {
+  const secret = 'sk-test-1234567890abcdef';
+  const workspace = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'agent-workbench-template-hook-fail-open-'),
+  );
+  const result = spawnSync(process.execPath, [templateHook], {
+    env: {
+      ...process.env,
+      AGENT_WORKBENCH_HOME: path.join(
+        os.tmpdir(),
+        `missing-DEEPSEEK_API_KEY=${secret}`,
+      ),
+    },
+    input: JSON.stringify({
+      hook_event_name: 'postToolUse',
+      tool_name: 'Shell',
+      workspace_roots: [workspace],
+      tool_input: { command: 'node app.js' },
+    }),
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {});
+  assert.doesNotMatch(result.stderr, new RegExp(secret));
 });
 
 function recordWithoutToolId(secret) {

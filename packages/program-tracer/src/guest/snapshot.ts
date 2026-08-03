@@ -63,7 +63,11 @@ function snapshotValueUnsafe(
     return true;
   };
 
-  const walk = (value: unknown, depth: number): unknown => {
+  const walk = (
+    value: unknown,
+    depth: number,
+    textField?: string,
+  ): unknown => {
     if (!budget()) {
       return { $summary: 'snapshot-budget-exceeded' };
     }
@@ -75,7 +79,10 @@ function snapshotValueUnsafe(
 
     const valueType = typeof value;
     if (valueType === 'string') {
-      const text = redactCredentialText(value as string);
+      const text = redactCredentialText(value as string, {
+        context: 'auto',
+        field: textField,
+      });
       bytes += Math.min(text.length, limits.maxStringLength);
       if (options?.summaryOnly || text.length > limits.maxStringLength) {
         degraded ||= text.length > limits.maxStringLength || !!options?.summaryOnly;
@@ -162,7 +169,7 @@ function snapshotValueUnsafe(
         if (!budget()) {
           break;
         }
-        items.push(walk(value[i], depth + 1));
+        items.push(walk(value[i], depth + 1, textField));
       }
       bytes += 16;
       return value.length > limit
@@ -172,22 +179,27 @@ function snapshotValueUnsafe(
 
     if (valueType === 'object') {
       const output: Record<string, unknown> = {};
-      const entries = Object.entries(value as Record<string, unknown>);
-      const limit = Math.min(entries.length, limits.maxProperties);
-      if (entries.length > limit) {
+      const keys = Object.keys(value as Record<string, unknown>);
+      const limit = Math.min(keys.length, limits.maxProperties);
+      if (keys.length > limit) {
         degraded = true;
       }
       for (let i = 0; i < limit; i += 1) {
         if (!budget()) {
           break;
         }
-        const [key, nested] = entries[i];
+        const key = keys[i];
         if (isCredentialKey(key)) {
           output[key] = REDACTED_VALUE;
           bytes += key.length + 12;
           continue;
         }
-        output[key] = walk(nested, depth + 1);
+        const nested = (value as Record<string, unknown>)[key];
+        output[key] = walk(
+          nested,
+          depth + 1,
+          textField ? `${textField}.${key}` : key,
+        );
       }
       bytes += 16;
       return output;

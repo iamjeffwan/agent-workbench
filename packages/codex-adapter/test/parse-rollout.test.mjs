@@ -13,7 +13,7 @@ test('Codex records hide credentials before callers can store them', () => {
 
   assert.deepEqual(step.arguments, {
     DEEPSEEK_API_KEY: '[REDACTED]',
-    command: 'TOKEN=[REDACTED] node app.js',
+    command: "TOKEN=[REDACTED] node app.js && token='[REDACTED]';",
     content: 'A token budget is ordinary product text.',
   });
   assert.equal(step.output, 'Authorization: [REDACTED]');

@@ -22,8 +22,17 @@ pnpm bench -- --label smoke
 pnpm desktop:dev
 ```
 
-打开桌面应用后选择任意项目目录；默认读取该目录下 `.agent-workbench/agent-steps.jsonl` 与 `trace-records.jsonl`。
+第一次可先创建桌面图标：
 
-## 给 Beside 等外部项目接入
+```bash
+pnpm desktop:shortcut
+```
 
-见 `docs/dogfood-beside.md`。
+之后双击桌面上的 `Agent Workbench` 即可打开（不必再进命令行）。
+
+打开后选择任意项目目录。工作台会自动注入 Cursor 观察配置，并读取该目录下：
+
+- `.agent-workbench/agent-steps.jsonl`
+- `.agent-workbench/trace-records.jsonl`
+
+用户不必先手写 hooks。说明见 `docs/dogfood-beside.md`。

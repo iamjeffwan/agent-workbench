@@ -2,6 +2,7 @@ const openBtn = document.getElementById('openBtn');
 const refreshBtn = document.getElementById('refreshBtn');
 const expandExplore = document.getElementById('expandExplore');
 const projectLabel = document.getElementById('projectLabel');
+const observeLabel = document.getElementById('observeLabel');
 const tree = document.getElementById('tree');
 const detail = document.getElementById('detail');
 const empty = document.getElementById('empty');
@@ -12,6 +13,7 @@ let current = {
   projectRoot: null,
   turns: [],
   error: null,
+  observation: null,
   files: {},
 };
 
@@ -99,9 +101,26 @@ function showDetail(node) {
   detail.textContent = JSON.stringify(copy, null, 2);
 }
 
+function renderObservation() {
+  if (!current.projectRoot) {
+    observeLabel.textContent = '打开项目后会自动注入 Cursor 观察配置';
+    observeLabel.classList.remove('warn');
+    return;
+  }
+  if (current.observation?.workbenchHome) {
+    observeLabel.textContent =
+      '已注入观察配置：Cursor 工具步骤会写入本项目 .agent-workbench/';
+    observeLabel.classList.remove('warn');
+    return;
+  }
+  observeLabel.textContent = '尚未完成观察配置注入；可点“刷新”重试';
+  observeLabel.classList.add('warn');
+}
+
 function renderState(next) {
   current = next || current;
   projectLabel.textContent = current.projectRoot || '未选择项目';
+  renderObservation();
   if (current.error) {
     status.textContent = current.error;
     status.classList.add('error');
@@ -116,6 +135,9 @@ function renderState(next) {
   if (!selected) {
     empty.classList.remove('hidden');
     detail.classList.add('hidden');
+    empty.textContent = current.projectRoot
+      ? '已开始观察。在 Cursor 里对该项目执行工具后，操作流会出现在左侧。'
+      : '选择项目目录后，工作台会自动注入 Cursor 观察配置，并读取其中的操作流。';
   }
 }
 
