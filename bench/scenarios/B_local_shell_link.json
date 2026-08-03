@@ -1,0 +1,16 @@
+{
+  "id": "B_local_shell_link",
+  "description": "Local sample-app under run-with-trace; no network, no API keys",
+  "type": "local_inject",
+  "repeat": 1,
+  "expect": {
+    "min_agent_tools": 1,
+    "min_program_records": 1,
+    "min_link_rate": 1,
+    "max_incomplete_rate": 0,
+    "silent_drop_allowed": false,
+    "links": [
+      { "origin": "bench_shell_link_1", "methodIds": [1], "minCalls": 1 }
+    ]
+  }
+}

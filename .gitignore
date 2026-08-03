@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+coverage/
+.turbo/
+.vite/
+.agent-workbench/
+bench/results/*
+!bench/results/.gitkeep
+out/
+release/
+*.tsbuildinfo

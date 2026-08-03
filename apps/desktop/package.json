@@ -1,0 +1,21 @@
+{
+  "name": "@agent-workbench/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Electron observation shell for Agent Workbench.",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "@agent-workbench/timeline": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

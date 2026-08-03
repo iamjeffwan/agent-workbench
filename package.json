@@ -1,0 +1,20 @@
+{
+  "name": "agent-workbench",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Bypass observation workbench for coding agents and program internals.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" build",
+    "test": "node scripts/test-agent-workbench.mjs",
+    "bench": "node bench/run.mjs",
+    "bench:diff": "node bench/diff.mjs",
+    "view": "pnpm --filter @agent-workbench/program-tracer view",
+    "desktop": "pnpm --filter @agent-workbench/desktop start",
+    "desktop:dev": "pnpm --filter @agent-workbench/desktop dev"
+  },
+  "packageManager": "pnpm@11.1.2",
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "A_mock_multi_call",
+  "description": "Deterministic mock timeline: multi-turn tools + nested program calls",
+  "type": "seed_mock",
+  "expect": {
+    "min_agent_tools": 14,
+    "min_program_records": 4,
+    "min_link_rate": 1,
+    "min_parent_child_accuracy": 1,
+    "max_incomplete_rate": 0,
+    "silent_drop_allowed": false,
+    "links": [
+      { "origin": "toolu_shell_t1", "methodIds": [1, 2], "minCalls": 3 },
+      { "origin": "toolu_shell_t2", "methodIds": [2], "minCalls": 1 }
+    ],
+    "parent_edges": [{ "callId": 2, "parentCallId": 1 }]
+  }
+}

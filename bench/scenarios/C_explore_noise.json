@@ -1,0 +1,13 @@
+{
+  "id": "C_explore_noise",
+  "description": "Mock timeline must keep explore tools measurable for aggregation work",
+  "type": "seed_mock",
+  "expect": {
+    "min_agent_tools": 14,
+    "min_program_records": 4,
+    "min_link_rate": 1,
+    "max_explore_noise_ratio": 0.9,
+    "min_explore_noise_ratio": 0.5,
+    "silent_drop_allowed": false
+  }
+}

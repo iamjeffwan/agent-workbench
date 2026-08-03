@@ -1,0 +1,11 @@
+{
+  "id": "D_trace_overhead",
+  "description": "Sample-app hello() with/without preload; local only",
+  "type": "overhead",
+  "repeat": 7,
+  "warmup": 2,
+  "expect": {
+    "max_latency_overhead_p50": 40,
+    "silent_drop_allowed": false
+  }
+}

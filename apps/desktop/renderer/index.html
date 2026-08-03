@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Workbench</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Agent Workbench</div>
+      <div class="actions">
+        <button id="openBtn" type="button">打开项目</button>
+        <button id="refreshBtn" type="button">刷新</button>
+        <label class="toggle">
+          <input id="expandExplore" type="checkbox" />
+          展开探查
+        </label>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="tree-pane">
+        <div id="projectLabel" class="project-label">未选择项目</div>
+        <div id="tree" class="tree"></div>
+      </aside>
+      <section class="detail-pane">
+        <div id="empty" class="empty">
+          选择项目目录后，读取其中的 `.agent-workbench` 记录并展示操作流。
+        </div>
+        <pre id="detail" class="detail hidden"></pre>
+      </section>
+    </main>
+    <footer id="status" class="status"></footer>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

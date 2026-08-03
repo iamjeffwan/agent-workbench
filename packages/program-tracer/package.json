@@ -1,0 +1,45 @@
+{
+  "name": "@agent-workbench/program-tracer",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Host/guest program tracer for Agent Workbench.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./host": {
+      "types": "./dist/host/index.d.ts",
+      "import": "./dist/host/index.js"
+    },
+    "./preload": {
+      "types": "./dist/guest/preload.d.ts",
+      "import": "./dist/guest/preload.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "analyze-boundaries": "./dist/host/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "analyze": "node dist/host/cli.js",
+    "view": "node scripts/trace-viewer.mjs",
+    "observe": "node scripts/observe-run.mjs",
+    "seed:codex-demo": "node scripts/seed-codex-demo.mjs",
+    "seed:mock": "node scripts/seed-mock-timeline.mjs",
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "typescript": "^5.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "projectRoot": ".",
+  "methods": [
+    {
+      "id": 1,
+      "sourceFile": "body.cjs",
+      "compiledFile": "body.cjs",
+      "className": "Greeter",
+      "methodName": "hello"
+    }
+  ]
+}
