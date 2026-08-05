@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>box-shadow 调节台</title>
+    <style>
+      :root {
+        --bg: #e8edf3;
+        --panel: #ffffff;
+        --ink: #16181e;
+        --muted: #667085;
+        --line: #d5dbe5;
+        --accent: #ef4526;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 340px minmax(0, 1fr);
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+
+      @media (max-width: 860px) {
+        body {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      aside {
+        padding: 20px 18px 28px;
+        border-right: 1px solid var(--line);
+        background: #fbfcfe;
+        overflow: auto;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      .sub {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      .field label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .field label span {
+        color: var(--muted);
+        font-family: Consolas, monospace;
+        font-weight: 500;
+      }
+
+      input[type="range"] {
+        width: 100%;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 8px 0 16px;
+      }
+
+      .presets button {
+        height: 30px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .presets button:hover {
+        border-color: #f0b2a4;
+        background: #fff5f2;
+      }
+
+      main {
+        display: grid;
+        place-items: center;
+        padding: 32px 20px;
+      }
+
+      .stage {
+        width: min(520px, 100%);
+      }
+
+      .sample {
+        display: grid;
+        height: 180px;
+        place-items: center;
+        border-radius: 14px;
+        background: var(--panel);
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .output {
+        margin-top: 18px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #111827;
+        color: #e5e7eb;
+        font-family: Consolas, "Cascadia Code", monospace;
+        font-size: 12.5px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .hint {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>box-shadow 调节台</h1>
+      <p class="sub">拖动下面参数，看右侧面板实时变化。可先点预设，再微调。</p>
+
+      <div class="presets">
+        <button type="button" data-preset="edge">边线内阴影</button>
+        <button type="button" data-preset="area">内部区域变暗</button>
+        <button type="button" data-preset="right">内阴影往右偏</button>
+        <button type="button" data-preset="outer">普通外投影</button>
+      </div>
+
+      <label class="check">
+        <input id="inset" type="checkbox" checked />
+        使用 inset（内阴影）
+      </label>
+
+      <div class="row">
+        <div class="field">
+          <label>水平偏移 <span id="xVal">12px</span></label>
+          <input id="x" type="range" min="-40" max="40" value="12" />
+        </div>
+        <div class="field">
+          <label>垂直偏移 <span id="yVal">0px</span></label>
+          <input id="y" type="range" min="-40" max="40" value="0" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>模糊 <span id="blurVal">18px</span></label>
+        <input id="blur" type="range" min="0" max="60" value="18" />
+      </div>
+
+      <div class="field">
+        <label>扩散 <span id="spreadVal">0px</span></label>
+        <input id="spread" type="range" min="-20" max="30" value="0" />
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>颜色</label>
+          <input id="color" type="color" value="#000000" style="width: 100%; height: 34px" />
+        </div>
+        <div class="field">
+          <label>透明度 <span id="alphaVal">0.25</span></label>
+          <input id="alpha" type="range" min="0" max="100" value="25" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>
+          外阴影（可选叠加）
+          <input id="outerOn" type="checkbox" />
+        </label>
+      </div>
+    </aside>
+
+    <main>
+      <div class="stage">
+        <div id="sample" class="sample">拖左边参数看这里</div>
+        <div id="output" class="output"></div>
+        <p class="hint">
+          「内阴影往右偏」预设：inset + 水平偏移为正。阴影重心偏到右侧内部，左边相对更亮。
+        </p>
+      </div>
+    </main>
+
+    <script>
+      const els = {
+        inset: document.getElementById("inset"),
+        x: document.getElementById("x"),
+        y: document.getElementById("y"),
+        blur: document.getElementById("blur"),
+        spread: document.getElementById("spread"),
+        color: document.getElementById("color"),
+        alpha: document.getElementById("alpha"),
+        outerOn: document.getElementById("outerOn"),
+        sample: document.getElementById("sample"),
+        output: document.getElementById("output"),
+        xVal: document.getElementById("xVal"),
+        yVal: document.getElementById("yVal"),
+        blurVal: document.getElementById("blurVal"),
+        spreadVal: document.getElementById("spreadVal"),
+        alphaVal: document.getElementById("alphaVal"),
+      };
+
+      const presets = {
+        edge: {
+          inset: true,
+          x: 0,
+          y: 1,
+          blur: 0,
+          spread: 0,
+          color: "#000000",
+          alpha: 18,
+          outerOn: true,
+        },
+        area: {
+          inset: true,
+          x: 0,
+          y: 0,
+          blur: 22,
+          spread: 2,
+          color: "#000000",
+          alpha: 28,
+          outerOn: false,
+        },
+        right: {
+          inset: true,
+          x: 14,
+          y: 0,
+          blur: 18,
+          spread: 0,
+          color: "#000000",
+          alpha: 30,
+          outerOn: false,
+        },
+        outer: {
+          inset: false,
+          x: 0,
+          y: 8,
+          blur: 18,
+          spread: 0,
+          color: "#000000",
+          alpha: 22,
+          outerOn: false,
+        },
+      };
+
+      function hexToRgb(hex) {
+        const n = hex.replace("#", "");
+        return {
+          r: parseInt(n.slice(0, 2), 16),
+          g: parseInt(n.slice(2, 4), 16),
+          b: parseInt(n.slice(4, 6), 16),
+        };
+      }
+
+      function render() {
+        const inset = els.inset.checked;
+        const x = Number(els.x.value);
+        const y = Number(els.y.value);
+        const blur = Number(els.blur.value);
+        const spread = Number(els.spread.value);
+        const alpha = Number(els.alpha.value) / 100;
+        const { r, g, b } = hexToRgb(els.color.value);
+        const color = `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(2)})`;
+
+        els.xVal.textContent = `${x}px`;
+        els.yVal.textContent = `${y}px`;
+        els.blurVal.textContent = `${blur}px`;
+        els.spreadVal.textContent = `${spread}px`;
+        els.alphaVal.textContent = alpha.toFixed(2);
+
+        const main = `${inset ? "inset " : ""}${x}px ${y}px ${blur}px ${spread}px ${color}`;
+        const layers = [main];
+        if (els.outerOn.checked) {
+          layers.push("0 2px 8px rgba(0, 0, 0, 0.12)");
+        }
+
+        const css = layers.join(",\n  ");
+        els.sample.style.boxShadow = css;
+        els.output.textContent = `box-shadow:\n  ${css};`;
+      }
+
+      function applyPreset(name) {
+        const p = presets[name];
+        if (!p) return;
+        els.inset.checked = p.inset;
+        els.x.value = p.x;
+        els.y.value = p.y;
+        els.blur.value = p.blur;
+        els.spread.value = p.spread;
+        els.color.value = p.color;
+        els.alpha.value = p.alpha;
+        els.outerOn.checked = p.outerOn;
+        render();
+      }
+
+      for (const el of Object.values(els)) {
+        if (!el || !("addEventListener" in el)) continue;
+        if (el === els.sample || el === els.output) continue;
+        if (el.tagName === "SPAN") continue;
+        el.addEventListener("input", render);
+        el.addEventListener("change", render);
+      }
+
+      document.querySelectorAll("[data-preset]").forEach((btn) => {
+        btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
+      });
+
+      applyPreset("right");
+    </script>
+  </body>
+</html>

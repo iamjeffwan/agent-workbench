@@ -8,17 +8,21 @@ Cursor 自带的 `agent-transcripts` JSONL 通常缺少工具输出，且不一�
 - `.cursor/hooks/record-agent-tool.mjs`：工具结束后记账
 - `.cursor/hooks/inject-shell-trace.mjs`：Shell 启动前注入
 - `.cursor/hooks/run-with-trace.mjs`：带进程来源编号和预加载执行命令
+- `.cursor/hooks/record-code-state.mjs`：轮次开始和结束时记录代码状态
 
 监听：
 
 - `preToolUse`（matcher: `Shell`）
 - `postToolUse`
 - `postToolUseFailure`
+- `beforeSubmitPrompt`
+- `stop`
 
 ## 写出位置
 
 - 代理步骤：`.agent-workbench/agent-steps.jsonl`
 - 程序记录：`.agent-workbench/trace-records.jsonl`
+- 代码变化：`.agent-workbench/code-changes.jsonl`
 
 代理步骤关键字段：
 
@@ -71,5 +75,5 @@ Shell
 
 ## 尚未做
 
-- 验证页按轮次折叠 Read/Grep 等高频探查工具
 - Task / 非 Shell 启动路径的自动注入
+- 非 Git 项目的轮次代码差异

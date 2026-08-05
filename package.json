@@ -1,6 +1,6 @@
 {
   "name": "agent-workbench",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Bypass observation workbench for coding agents and program internals.",
   "type": "module",
@@ -12,6 +12,7 @@
     "view": "pnpm --filter @agent-workbench/program-tracer view",
     "desktop": "pnpm --filter @agent-workbench/desktop start",
     "desktop:dev": "pnpm --filter @agent-workbench/desktop dev",
+    "desktop:ui-preview": "pnpm --filter @agent-workbench/desktop ui-preview",
     "desktop:shortcut": "pnpm --filter @agent-workbench/desktop shortcut"
   },
   "packageManager": "pnpm@11.1.2",

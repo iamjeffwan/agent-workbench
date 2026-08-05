@@ -1,21 +1,53 @@
 {
   "name": "@agent-workbench/desktop",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Electron observation shell for Agent Workbench.",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
-    "start": "node ./scripts/run-electron.mjs",
-    "dev": "node ./scripts/run-electron.mjs",
-    "shortcut": "node ./scripts/create-desktop-shortcut.mjs"
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "pnpm run build && node ./scripts/run-electron.mjs",
+    "dev": "node ./scripts/run-electron.mjs --dev",
+    "ui-preview": "pnpm run build && node ./scripts/run-electron.mjs --ui-preview",
+    "shortcut": "pnpm run build && node ./scripts/create-desktop-shortcut.mjs",
+    "test": "pnpm run typecheck && pnpm run build && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
+    "@agent-workbench/codex-adapter": "workspace:*",
     "@agent-workbench/project-observe": "workspace:*",
-    "@agent-workbench/timeline": "workspace:*"
+    "@agent-workbench/timeline": "workspace:*",
+    "@fontsource/dm-mono": "5.0.19",
+    "@fontsource/dm-sans": "5.0.20",
+    "@fontsource/saira": "5.0.27",
+    "@fortawesome/fontawesome-svg-core": "1.2.27",
+    "@fortawesome/free-brands-svg-icons": "5.12.1",
+    "@fortawesome/free-regular-svg-icons": "5.12.1",
+    "@fortawesome/free-solid-svg-icons": "5.12.1",
+    "@fortawesome/react-fontawesome": "0.1.8",
+    "@lobehub/icons-static-svg": "1.90.0",
+    "@phosphor-icons/react": "2.1.5",
+    "monaco-editor": "0.27.0",
+    "polished": "4.3.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-monaco-editor": "0.45.0",
+    "react-split-pane": "0.1.92",
+    "react-virtualized-auto-sizer": "1.0.2",
+    "react-window": "1.8.5",
+    "styled-components": "5.0.0",
+    "styled-reset": "1.6.1"
   },
   "devDependencies": {
-    "electron": "^37.2.0"
+    "@types/react": "18.2.72",
+    "@types/react-dom": "18.2.22",
+    "@types/react-window": "1.8.1",
+    "@types/styled-components": "5.1.34",
+    "@vitejs/plugin-react": "6.0.4",
+    "electron": "^37.2.0",
+    "typescript": "5.7.2",
+    "vite": "8.1.5"
   },
   "engines": {
     "node": ">=22"

@@ -16,6 +16,7 @@ const packages = [
   // program-tracer before cursor-adapter: Shell inject tests need preload.js
   { name: 'program-tracer', root: 'packages/program-tracer', build: true },
   { name: 'cursor-adapter', root: 'packages/cursor-adapter', build: true },
+  { name: 'desktop', root: 'apps/desktop', build: true, vite: true },
 ];
 
 for (const item of packages) {
@@ -27,6 +28,13 @@ for (const item of packages) {
     const rootTsc = path.join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc');
     const compiler = fs.existsSync(localTsc) ? localTsc : rootTsc;
     run(process.execPath, [compiler, '-p', path.join(packageRoot, 'tsconfig.json')], repoRoot);
+  }
+
+  if (item.vite) {
+    const localVite = path.join(packageRoot, 'node_modules', 'vite', 'bin', 'vite.js');
+    const rootVite = path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js');
+    const vite = fs.existsSync(localVite) ? localVite : rootVite;
+    run(process.execPath, [vite, 'build'], packageRoot);
   }
 
   run(process.execPath, ['--test', 'test/*.test.mjs'], packageRoot);

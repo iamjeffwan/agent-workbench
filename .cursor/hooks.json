@@ -3,21 +3,33 @@
   "hooks": {
     "preToolUse": [
       {
-        "command": "node .cursor/hooks/inject-shell-trace.mjs",
+        "command": "node .agent-workbench/cursor-hooks/inject-shell-trace.mjs",
         "matcher": "Shell",
         "timeout": 15
       }
     ],
     "postToolUse": [
       {
-        "command": "node .cursor/hooks/record-agent-tool.mjs",
+        "command": "node .agent-workbench/cursor-hooks/record-agent-tool.mjs",
         "timeout": 10
       }
     ],
     "postToolUseFailure": [
       {
-        "command": "node .cursor/hooks/record-agent-tool.mjs",
+        "command": "node .agent-workbench/cursor-hooks/record-agent-tool.mjs",
         "timeout": 10
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .agent-workbench/cursor-hooks/record-code-state.mjs start",
+        "timeout": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .agent-workbench/cursor-hooks/record-code-state.mjs end",
+        "timeout": 15
       }
     ]
   }

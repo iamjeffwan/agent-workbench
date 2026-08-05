@@ -53,24 +53,15 @@ function main() {
   try {
     const step = toAgentStep(payload);
     if (step) {
-      appendStep(step, payload.workspace_roots);
+      const projectRoot = firstWorkspaceRoot(payload.workspace_roots) || process.cwd();
+      appendStep({
+        ...step,
+        cwd: projectRoot,
+        projectAssignment: 'workspace_roots',
+      }, projectRoot);
     }
   } catch (error) {
-    // Fail open: never block the agent because of recorder problems.
-    try {
-      const root = firstWorkspaceRoot(payload.workspace_roots);
-      if (root) {
-        const logPath = path.join(root, '.agent-workbench', 'hook-errors.log');
-        fs.mkdirSync(path.dirname(logPath), { recursive: true });
-        fs.appendFileSync(
-          logPath,
-          `${new Date().toISOString()} ${redactCredentialText(error instanceof Error ? error.stack || error.message : String(error))}\n`,
-          'utf8',
-        );
-      }
-    } catch {
-      // ignore
-    }
+    reportHookError(payload.workspace_roots, error);
   }
 
   writeEmpty();
@@ -139,8 +130,7 @@ function canLaunchProcess(toolName, args) {
   return /\bnode\b|\bnpm\b|\bpnpm\b|\byarn\b|\bbun\b/i.test(command);
 }
 
-function appendStep(step, workspaceRoots) {
-  const root = firstWorkspaceRoot(workspaceRoots) || process.cwd();
+function appendStep(step, root) {
   const outDir = path.join(root, '.agent-workbench');
   const outPath = path.join(outDir, 'agent-steps.jsonl');
   fs.mkdirSync(outDir, { recursive: true });
@@ -155,7 +145,32 @@ function firstWorkspaceRoot(roots) {
   if (!Array.isArray(roots) || roots.length === 0) {
     return null;
   }
-  return typeof roots[0] === 'string' ? roots[0] : null;
+  return typeof roots[0] === 'string' ? normalizeWorkspacePath(roots[0]) : null;
+}
+
+function normalizeWorkspacePath(value) {
+  let normalized = value.trim();
+  if (process.platform === 'win32' && /^\/[A-Za-z]:[\\/]/.test(normalized)) {
+    normalized = normalized.slice(1);
+  }
+  return path.resolve(normalized);
+}
+
+function reportHookError(workspaceRoots, error) {
+  const message = redactCredentialText(
+    error instanceof Error ? error.stack || error.message : String(error),
+    { context: 'strict' },
+  );
+  process.stderr.write(`Agent Workbench hook error: ${message}\n`);
+  try {
+    const root = firstWorkspaceRoot(workspaceRoots);
+    if (!root) return;
+    const logPath = path.join(root, '.agent-workbench', 'hook-errors.log');
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`, 'utf8');
+  } catch {
+    // stderr above remains visible when the project log cannot be written.
+  }
 }
 
 function synthesizeId(payload, toolName, safeArgs) {

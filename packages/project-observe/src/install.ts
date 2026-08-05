@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const MANAGED_MARKER = '.agent-workbench/cursor-hooks/';
+const LEGACY_HOOK_MARKER = '.cursor/hooks/';
 const HOOK_FILES = [
   'record-agent-tool.mjs',
   'inject-shell-trace.mjs',
   'run-with-trace.mjs',
+  'record-code-state.mjs',
 ] as const;
 
 export type InstallObservationOptions = {
@@ -39,7 +41,11 @@ type HooksConfig = {
 };
 
 export function isWorkbenchManagedHookCommand(command: unknown): boolean {
-  return typeof command === 'string' && command.includes(MANAGED_MARKER);
+  if (typeof command !== 'string') return false;
+  if (command.includes(MANAGED_MARKER)) return true;
+  return command.includes(LEGACY_HOOK_MARKER) && HOOK_FILES.some(
+    (fileName) => command.includes(`${LEGACY_HOOK_MARKER}${fileName}`),
+  );
 }
 
 export function mergeCursorHooksConfig(
@@ -83,6 +89,20 @@ export function mergeCursorHooksConfig(
     {
       command: `node ${MANAGED_MARKER}record-agent-tool.mjs`,
       timeout: 10,
+    },
+  ];
+  hooks.beforeSubmitPrompt = [
+    ...(hooks.beforeSubmitPrompt || []),
+    {
+      command: `node ${MANAGED_MARKER}record-code-state.mjs start`,
+      timeout: 15,
+    },
+  ];
+  hooks.stop = [
+    ...(hooks.stop || []),
+    {
+      command: `node ${MANAGED_MARKER}record-code-state.mjs end`,
+      timeout: 15,
     },
   ];
 
@@ -165,7 +185,11 @@ export function installProjectObservation(
 
   // Ensure the records directory exists so the desktop watcher has a target.
   fs.mkdirSync(awDir, { recursive: true });
-  for (const name of ['agent-steps.jsonl', 'trace-records.jsonl']) {
+  for (const name of [
+    'agent-steps.jsonl',
+    'trace-records.jsonl',
+    'code-changes.jsonl',
+  ]) {
     const filePath = path.join(awDir, name);
     if (!fs.existsSync(filePath)) {
       fs.writeFileSync(filePath, '', 'utf8');
@@ -181,6 +205,8 @@ export function installProjectObservation(
     managedCommands: [
       `node ${MANAGED_MARKER}inject-shell-trace.mjs`,
       `node ${MANAGED_MARKER}record-agent-tool.mjs`,
+      `node ${MANAGED_MARKER}record-code-state.mjs start`,
+      `node ${MANAGED_MARKER}record-code-state.mjs end`,
     ],
     warnings,
   };

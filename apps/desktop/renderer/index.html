@@ -4,38 +4,222 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Workbench</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">Agent Workbench</div>
-      <div class="actions">
-        <button id="openBtn" type="button">打开项目</button>
-        <button id="refreshBtn" type="button">刷新</button>
-        <label class="toggle">
-          <input id="expandExplore" type="checkbox" />
-          展开探查
+    <div id="app" class="workbench-shell">
+      <aside class="utility-rail" aria-label="主导航">
+        <div class="brand-tile" aria-label="Agent Workbench">
+          <svg viewBox="0 0 28 28" aria-hidden="true">
+            <path d="M7 20.5 11.5 7l5 14 4.5-13.5" />
+            <circle cx="6.25" cy="8" r="1.25" />
+            <circle cx="21.5" cy="20" r="1.25" />
+          </svg>
+        </div>
+
+        <nav class="rail-navigation" aria-label="工作区">
+          <button
+            class="rail-button active"
+            type="button"
+            aria-label="活动"
+            aria-current="page"
+            title="活动"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12h3l2-6 4 12 2-6h5" />
+            </svg>
+            <span>活动</span>
+          </button>
+          <button
+            class="rail-button"
+            type="button"
+            aria-label="项目"
+            aria-disabled="true"
+            title="项目"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3.5 6.5h6l2 2h9v10h-17z" />
+            </svg>
+            <span>项目</span>
+          </button>
+          <button
+            class="rail-button"
+            type="button"
+            aria-label="文件"
+            aria-disabled="true"
+            title="文件"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3.5h8l4 4v13H6z" />
+              <path d="M14 3.5v4h4M9 12h6M9 16h6" />
+            </svg>
+            <span>文件</span>
+          </button>
+          <button
+            class="rail-button"
+            type="button"
+            aria-label="设置"
+            aria-disabled="true"
+            title="设置"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.5 1A7 7 0 0 0 14.3 5L14 2.5h-4L9.7 5a7 7 0 0 0-2.1 1.8l-2.5-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.5-1A7 7 0 0 0 9.7 19l.3 2.5h4l.3-2.5a7 7 0 0 0 2.1-1.8l2.5 1 2-3.5-2-1.5A7 7 0 0 0 19 12Z" />
+            </svg>
+            <span>设置</span>
+          </button>
+        </nav>
+
+        <button
+          class="rail-project-button"
+          type="button"
+          aria-label="当前项目"
+          aria-disabled="true"
+          title="当前项目"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 5.5h6l2 2h8v11H4z" />
+            <path d="M8 12h8M8 15h5" />
+          </svg>
+        </button>
+      </aside>
+
+      <main class="activity-pane">
+        <header class="activity-toolbar">
+          <div class="activity-heading">
+            <h1>执行记录</h1>
+            <p id="project-root" class="project-path">尚未选择项目</p>
+          </div>
+
+          <div class="toolbar-actions">
+            <label class="search-field" for="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6" />
+                <path d="m15 15 4.5 4.5" />
+              </svg>
+              <input
+                id="search"
+                type="search"
+                autocomplete="off"
+                placeholder="搜索步骤、文件或类型"
+              />
+            </label>
+            <button
+              id="clear-filter"
+              class="icon-button"
+              type="button"
+              aria-label="清除筛选"
+              title="清除筛选"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 7 10 10M17 7 7 17" />
+              </svg>
+            </button>
+            <button
+              id="refresh"
+              class="icon-button"
+              type="button"
+              aria-label="刷新执行记录"
+              title="刷新执行记录"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 8a8 8 0 1 0 1 7" />
+                <path d="M19 3v5h-5" />
+              </svg>
+            </button>
+            <button id="open-project" class="primary-button" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3.5 7h7l2 2h8l-2 10h-15z" />
+              </svg>
+              <span>打开项目</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="activity-workspace" aria-label="执行活动">
+          <div class="filter-bar">
+            <span class="filter-label">来源</span>
+            <div id="source-filters" class="source-filters" aria-label="按来源筛选"></div>
+          </div>
+
+          <div class="activity-table" role="table" aria-label="执行记录">
+            <div class="activity-table-head" role="row">
+              <span class="column-indicator" role="columnheader">指示</span>
+              <span class="column-source" role="columnheader">来源</span>
+              <span class="column-status" role="columnheader">状态</span>
+              <span class="column-type" role="columnheader">类型</span>
+              <span class="column-step" role="columnheader">步骤</span>
+              <span class="column-duration" role="columnheader">耗时</span>
+            </div>
+            <div id="turns" class="activity-table-body" role="rowgroup"></div>
+          </div>
+
+          <div id="empty" class="empty-state">
+            <div class="empty-illustration" aria-hidden="true">
+              <svg viewBox="0 0 48 48">
+                <path d="M8 14h32v24H8z" />
+                <path d="M8 20h32M14 9v10M34 9v10M16 28h16M16 33h10" />
+              </svg>
+            </div>
+            <p class="empty-title">还没有执行记录</p>
+            <p class="empty-hint">打开一个项目，开始查看代理的执行过程。</p>
+          </div>
+        </section>
+
+        <footer class="activity-status-bar" aria-label="观察状态">
+          <div class="status-message">
+            <span class="status-live-dot" aria-hidden="true"></span>
+            <span id="observation">打开项目后开始观察</span>
+          </div>
+          <div id="error" class="status-error-message" hidden></div>
+          <span id="visible-count" class="visible-count">0 项活动</span>
+        </footer>
+      </main>
+
+      <aside id="detail" class="inspector" aria-label="步骤详情">
+        <header class="inspector-header">
+          <div>
+            <span class="inspector-kicker">INSPECTOR</span>
+            <h2>步骤详情</h2>
+          </div>
+          <button
+            id="detail-close"
+            class="icon-button"
+            type="button"
+            aria-label="关闭步骤详情"
+            title="关闭步骤详情"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m7 7 10 10M17 7 7 17" />
+            </svg>
+          </button>
+        </header>
+        <div id="detail-body" class="inspector-body">
+          <div class="inspector-empty">
+            <svg viewBox="0 0 48 48" aria-hidden="true">
+              <circle cx="21" cy="21" r="11" />
+              <path d="m29 29 9 9M21 16v10M16 21h10" />
+            </svg>
+            <p>选择一条执行记录</p>
+            <span>在这里查看步骤输入、输出与原始数据。</span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="compatibility-data" hidden>
+        <div id="source-stats"></div>
+        <ul id="turn-list"></ul>
+        <label>
+          <input id="toggle-program" type="checkbox" checked />
+          显示程序方法
         </label>
       </div>
-    </header>
-    <main class="layout">
-      <aside class="tree-pane">
-        <div id="projectLabel" class="project-label">未选择项目</div>
-        <div id="observeLabel" class="observe-label">打开项目后会自动注入 Cursor 观察配置</div>
-        <div id="tree" class="tree"></div>
-      </aside>
-      <section class="detail-pane">
-        <div id="empty" class="empty">
-          选择项目目录后，读取其中的 `.agent-workbench` 记录并展示操作流。
-        </div>
-        <pre id="detail" class="detail hidden"></pre>
-      </section>
-    </main>
-    <footer id="status" class="status"></footer>
-    <script type="module" src="./app.js"></script>
+    </div>
+
+    <script type="module" src="app.js"></script>
   </body>
 </html>

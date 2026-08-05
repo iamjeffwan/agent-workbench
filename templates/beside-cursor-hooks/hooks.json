@@ -19,6 +19,18 @@
         "command": "node .cursor/hooks/record-agent-tool.mjs",
         "timeout": 10
       }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .cursor/hooks/record-code-state.mjs start",
+        "timeout": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .cursor/hooks/record-code-state.mjs end",
+        "timeout": 15
+      }
     ]
   }
 }

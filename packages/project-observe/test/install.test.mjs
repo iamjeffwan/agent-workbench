@@ -27,6 +27,7 @@ test('merge keeps user hooks and replaces previous managed entries', () => {
         },
       ],
       postToolUse: [
+        { command: 'node .cursor/hooks/record-agent-tool.mjs' },
         { command: 'node .agent-workbench/cursor-hooks/record-agent-tool.mjs' },
       ],
     },
@@ -38,7 +39,10 @@ test('merge keeps user hooks and replaces previous managed entries', () => {
     isWorkbenchManagedHookCommand(merged.hooks.preToolUse[1].command),
   );
   assert.equal(merged.hooks.postToolUse.length, 1);
+  assert.ok(isWorkbenchManagedHookCommand('node .cursor/hooks/record-agent-tool.mjs'));
   assert.equal(merged.hooks.postToolUseFailure.length, 1);
+  assert.equal(merged.hooks.beforeSubmitPrompt.length, 1);
+  assert.equal(merged.hooks.stop.length, 1);
   assert.deepEqual(merged.metadata, { owner: 'user' });
 });
 
@@ -93,6 +97,16 @@ test('install writes managed wrappers and merges hooks.json', () => {
       isWorkbenchManagedHookCommand(entry.command),
     ),
   );
+  assert.ok(
+    hooks.hooks.beforeSubmitPrompt.some((entry) =>
+      isWorkbenchManagedHookCommand(entry.command),
+    ),
+  );
+  assert.ok(
+    hooks.hooks.stop.some((entry) =>
+      isWorkbenchManagedHookCommand(entry.command),
+    ),
+  );
 
   const observation = JSON.parse(fs.readFileSync(result.observationPath, 'utf8'));
   assert.equal(observation.workbenchHome, repoRoot);
@@ -107,6 +121,7 @@ test('custom hook sources are embedded into managed files', () => {
     'record-agent-tool.mjs',
     'inject-shell-trace.mjs',
     'run-with-trace.mjs',
+    'record-code-state.mjs',
   ]) {
     fs.writeFileSync(
       path.join(sourceHooksDir, fileName),
@@ -136,6 +151,7 @@ test('installed hooks fail open after the workbench moves', () => {
     'record-agent-tool.mjs',
     'inject-shell-trace.mjs',
     'run-with-trace.mjs',
+    'record-code-state.mjs',
   ]) {
     fs.copyFileSync(
       path.join(repoRoot, '.cursor', 'hooks', fileName),

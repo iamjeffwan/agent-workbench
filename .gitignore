@@ -9,9 +9,11 @@ build/
 coverage/
 .turbo/
 .vite/
+.pnpm-store/
 .agent-workbench/
 bench/results/*
 !bench/results/.gitkeep
 out/
 release/
 *.tsbuildinfo
+.research/

@@ -59,6 +59,36 @@ test('synthetic Cursor tool ids do not depend on credential values', () => {
   assert.equal(first.id, second.id);
 });
 
+test('Cursor hook normalizes slash-prefixed Windows workspace roots', { skip: process.platform !== 'win32' }, () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workbench-hook-path-'));
+  const cursorRoot = `/${workspace.replaceAll('\\', '/')}`;
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, '.cursor/hooks/record-agent-tool.mjs')],
+    {
+      input: JSON.stringify({
+        hook_event_name: 'postToolUse',
+        tool_name: 'Grep',
+        tool_use_id: 'tool-path',
+        conversation_id: 'conversation-path',
+        generation_id: 'turn-path',
+        workspace_roots: [cursorRoot],
+        tool_input: { pattern: 'buildTimeline' },
+        tool_output: '1 match',
+      }),
+      encoding: 'utf8',
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const step = JSON.parse(fs.readFileSync(
+    path.join(workspace, '.agent-workbench', 'agent-steps.jsonl'),
+    'utf8',
+  ));
+  assert.equal(step.cwd, path.resolve(workspace));
+  assert.equal(step.projectAssignment, 'workspace_roots');
+});
+
 test('Cursor failure errors use strict text redaction before storage', () => {
   const workspace = fs.mkdtempSync(
     path.join(os.tmpdir(), 'agent-workbench-hook-failure-'),

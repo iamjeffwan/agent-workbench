@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>box-shadow 对比 Demo</title>
+    <style>
+      :root {
+        --bg: #eef1f5;
+        --panel: #ffffff;
+        --ink: #16181e;
+        --muted: #6b7280;
+        --line: #d9dde4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        padding: 40px 24px 60px;
+        background:
+          radial-gradient(circle at top, #f8fafc, var(--bg) 55%);
+        color: var(--ink);
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+
+      .lead {
+        margin: 0 0 28px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(280px, 1fr));
+        gap: 24px;
+        max-width: 980px;
+      }
+
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .sample-c {
+        box-shadow:
+          inset 0 0 18px rgba(0, 0, 0, 0.18),
+          0 2px 4px rgba(0, 0, 0, 0.12),
+          0 0 14px rgba(0, 0, 0, 0.08);
+      }
+
+      .sample-d {
+        box-shadow:
+          inset 0 0 28px 4px rgba(0, 0, 0, 0.22),
+          0 2px 4px rgba(0, 0, 0, 0.12),
+          0 0 12px rgba(0, 0, 0, 0.06);
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .card h2 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+
+      .card p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .sample {
+        display: flex;
+        height: 88px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: var(--panel);
+        color: #374151;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .sample-a {
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.82),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+          0 2px 5px rgba(0, 0, 0, 0.13),
+          0 0 30px rgba(0, 0, 0, 0.2);
+      }
+
+      .sample-b {
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.7),
+          inset 0 -2px 3px rgba(0, 0, 0, 0.22),
+          0 2px 4px rgba(0, 0, 0, 0.12),
+          0 0 14px rgba(0, 0, 0, 0.08);
+      }
+
+      code {
+        display: block;
+        margin-top: 14px;
+        padding: 12px;
+        overflow: auto;
+        border-radius: 8px;
+        background: #f3f4f6;
+        color: #1f2937;
+        font-family: Consolas, "Cascadia Code", monospace;
+        font-size: 11.5px;
+        line-height: 1.45;
+        white-space: pre;
+      }
+
+      .tips {
+        max-width: 980px;
+        margin-top: 24px;
+        padding: 14px 16px;
+        border-radius: 10px;
+        background: #fff;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>box-shadow 对比</h1>
+    <p class="lead">重点看 C：那才是「内部区域阴影」，不是上下边线。</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>A · 原版（边线式 inset）</h2>
+        <p>上下各 1px，几乎没有模糊 → 看起来像描边，不是整块内部变暗。</p>
+        <div class="sample sample-a">边线式内部阴影</div>
+        <code>box-shadow:
+  inset 0 1px 0 rgba(255, 255, 255, 0.82),
+  inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+  0 2px 5px rgba(0, 0, 0, 0.13),
+  0 0 30px rgba(0, 0, 0, 0.2);</code>
+      </section>
+
+      <section class="card">
+        <h2>B · 只加深边线</h2>
+        <p>还是边上下手，只是更明显一点；外晕也减弱了。</p>
+        <div class="sample sample-b">更深的边线</div>
+        <code>box-shadow:
+  inset 0 1px 0 rgba(255, 255, 255, 0.7),
+  inset 0 -2px 3px rgba(0, 0, 0, 0.22),
+  0 2px 4px rgba(0, 0, 0, 0.12),
+  0 0 14px rgba(0, 0, 0, 0.08);</code>
+      </section>
+
+      <section class="card">
+        <h2>C · 内部区域阴影（你要的）</h2>
+        <p>关键：inset + 较大模糊（可再加扩散）。阴影从四周向内晕开，整块像凹进去。</p>
+        <div class="sample sample-c">区域式内部阴影</div>
+        <code>box-shadow:
+  inset 0 0 18px rgba(0, 0, 0, 0.18),
+  0 2px 4px rgba(0, 0, 0, 0.12),
+  0 0 14px rgba(0, 0, 0, 0.08);</code>
+      </section>
+
+      <section class="card">
+        <h2>D · 区域阴影再加重</h2>
+        <p>模糊更大、颜色更深；也可加第 4 个数（扩散）让暗区更铺满。</p>
+        <div class="sample sample-d">更重的区域阴影</div>
+        <code>box-shadow:
+  inset 0 0 28px 4px rgba(0, 0, 0, 0.22),
+  0 2px 4px rgba(0, 0, 0, 0.12),
+  0 0 12px rgba(0, 0, 0, 0.06);</code>
+      </section>
+    </div>
+
+    <div class="tips">
+      <strong>边线式</strong>：偏移 1px、模糊约 0 → 只在边上画线。<br />
+      <strong>区域式</strong>：偏移多为 0，模糊 12px+ → 阴影铺进内部区域。<br />
+      公式：<code style="display:inline;padding:2px 6px;margin:0">inset 水平 垂直 模糊 [扩散] 颜色</code>
+      想更「凹」：加大模糊/扩散，或提高黑色透明度。
+    </div>
+  </body>
+</html>

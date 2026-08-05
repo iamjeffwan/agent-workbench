@@ -30,9 +30,10 @@ pnpm desktop:shortcut
 
 之后双击桌面上的 `Agent Workbench` 即可打开（不必再进命令行）。
 
-打开后选择任意项目目录。工作台会自动注入 Cursor 观察配置，并读取该目录下：
+打开后选择任意项目目录。工作台会自动注入 Cursor 观察配置，并持续读取工作目录与该项目匹配的 Codex 会话。两类来源分别写入，再由桌面端合并显示：
 
 - `.agent-workbench/agent-steps.jsonl`
+- `.agent-workbench/codex-agent-steps.jsonl`
 - `.agent-workbench/trace-records.jsonl`
 
-用户不必先手写 hooks。说明见 `docs/dogfood-beside.md`。
+Codex 同步使用增量检查点，工作台重启后会从上次完整记录行继续。其他项目目录中的会话不会进入当前项目。用户不必先手写 hooks。说明见 `docs/dogfood-beside.md`。
