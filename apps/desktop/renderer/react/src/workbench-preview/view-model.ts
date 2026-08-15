@@ -1,5 +1,5 @@
 export type DiffLayout = 'unified' | 'split';
-export type ActivityFocus = 'all' | 'agent' | 'runtime' | 'tests' | 'changes' | 'errors';
+export type ActivityFocus = 'all' | 'agent' | 'functions' | 'tests' | 'changes' | 'search' | 'requests' | 'errors';
 
 export interface RecordShape {
   id: string;
@@ -22,7 +22,7 @@ export interface PreviewState {
 }
 
 export type PreviewAction =
-  | { type: 'select-record'; id: string }
+  | { type: 'select-record'; id: string; wideInspector?: boolean }
   | { type: 'toggle-operation'; id: string }
   | { type: 'set-diff-layout'; layout: DiffLayout }
   | { type: 'open-project-file'; path: string; changed: boolean }
@@ -106,16 +106,21 @@ export function reducePreviewState(state: PreviewState, action: PreviewAction): 
       return {
         ...state,
         selectedId: action.id,
-        wideInspector: false,
-        diffLayout: 'unified',
+        wideInspector: action.wideInspector ?? false,
+        diffLayout: action.wideInspector ? state.diffLayout : 'unified',
         sourceModalPath: undefined,
+        focusedChangedPath: undefined,
       };
     case 'toggle-operation':
       return state.expandedOperationIds.includes(action.id)
         ? { ...state, expandedOperationIds: state.expandedOperationIds.filter(id => id !== action.id) }
         : { ...state, expandedOperationIds: [...state.expandedOperationIds, action.id] };
     case 'set-diff-layout':
-      return { ...state, diffLayout: action.layout, wideInspector: action.layout === 'split' };
+      return {
+        ...state,
+        diffLayout: action.layout,
+        wideInspector: action.layout === 'split',
+      };
     case 'open-project-file':
       return action.changed
         ? { ...state, focusedChangedPath: action.path, sourceModalPath: undefined }
@@ -170,10 +175,15 @@ function appendFocused<T extends RecordShape>(
 
 function matchesFocus(record: RecordShape, focus: ActivityFocus): boolean {
   if (focus === 'agent') return record.kind === 'operation' || record.kind === 'action';
-  if (focus === 'runtime') return record.kind === 'call' || record.kind === 'network';
+  if (focus === 'functions') return record.kind === 'call';
   if (focus === 'tests') return ['TEST', 'BUILD', 'LINT'].includes(record.method ?? '');
   if (focus === 'changes') return record.kind === 'changes';
-  if (focus === 'errors') return record.status === 'ERROR';
+  if (focus === 'search') return ['SEARCH', 'WEB'].includes(record.method ?? '');
+  if (focus === 'requests') return record.kind === 'network';
+  if (focus === 'errors') {
+    const status = (record.status ?? '').toLowerCase();
+    return status === 'error' || status === 'failed';
+  }
   return true;
 }
 

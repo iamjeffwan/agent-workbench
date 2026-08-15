@@ -91,20 +91,8 @@ export function mergeCursorHooksConfig(
       timeout: 10,
     },
   ];
-  hooks.beforeSubmitPrompt = [
-    ...(hooks.beforeSubmitPrompt || []),
-    {
-      command: `node ${MANAGED_MARKER}record-code-state.mjs start`,
-      timeout: 15,
-    },
-  ];
-  hooks.stop = [
-    ...(hooks.stop || []),
-    {
-      command: `node ${MANAGED_MARKER}record-code-state.mjs end`,
-      timeout: 15,
-    },
-  ];
+  // Turn-level git snapshots are disabled; keep stripping any previously managed
+  // beforeSubmitPrompt / stop code-state hooks during merge.
 
   return next;
 }

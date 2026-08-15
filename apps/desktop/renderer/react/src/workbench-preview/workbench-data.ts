@@ -1,10 +1,11 @@
 import type {
   AgentOperation,
+  ChangedFile,
   CodeChanges,
   PreviewRecord,
   ProgramCall,
 } from './types';
-import { parsePatchFiles } from './patch-files.ts';
+import { languageForPath, parsePatchFiles } from './patch-files.ts';
 
 export type AgentProvider = 'Codex' | 'Cursor';
 
@@ -57,6 +58,8 @@ export interface WorkbenchTimelineNode {
   projectRoot?: string | null;
   observationWindow?: unknown;
   outcome?: string | null;
+  appliedChanges?: Record<string, unknown> | null;
+  appliedChangeSuccess?: boolean | null;
   [key: string]: unknown;
 }
 
@@ -88,10 +91,325 @@ export interface WorkbenchState {
   };
 }
 
+export type HistoryActivity =
+  | 'SEARCH'
+  | 'FUNCTION'
+  | 'PROCESS'
+  | 'REQUEST'
+  | 'WRITE'
+  | 'DIFF'
+  | 'TEST'
+  | 'TOOL'
+  | 'DELEGATE'
+  | 'ERROR';
+
+export interface HistoryTurnSummary {
+  id: string;
+  conversationId: string;
+  userInput: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+  cwd: string;
+  status: 'completed' | 'running' | 'aborted' | 'failed' | 'unknown';
+  hasObservableActivity: boolean;
+  activities: HistoryActivity[];
+}
+
+export interface ConversationSummary {
+  id: string;
+  provider: 'codex';
+  title: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+  turnCount: number;
+  observableTurnCount: number;
+}
+
+export interface ConversationProjectSummary {
+  projectRoot: string;
+  updatedAt: string | null;
+  conversationCount: number;
+}
+
+export interface ConversationDetails extends ConversationSummary {
+  turns: HistoryTurnSummary[];
+}
+
+export interface TrackedConversationSelection {
+  projectRoot: string | null;
+  conversationIds: string[];
+}
+
+export interface ConversationHistoryResult<T> {
+  status: 'ready' | 'unavailable' | 'error';
+  source: 'codex-rollout';
+  data: T;
+  error: string | null;
+}
+
+export interface TaskSummary {
+  id: string;
+  title: string;
+  projectRoot: string;
+  conversationId: string;
+  turnIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  eventCount: number;
+  status: 'queued' | 'generating' | 'ready' | 'failed';
+  error: string | null;
+}
+
+export interface TaskScript {
+  id: string;
+  title: string;
+  language: 'shell' | 'javascript' | 'typescript' | 'python' | 'other';
+  content: string;
+  status: 'draft';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveTaskScriptInput {
+  id?: string;
+  title: string;
+  language: TaskScript['language'];
+  content: string;
+}
+
+export type TaskChangeReason =
+  | 'generation-queued'
+  | 'generation-started'
+  | 'generation-ready'
+  | 'generation-failed'
+  | 'discussion-updated'
+  | 'script-saved';
+
+export interface TaskChangeEvent {
+  task: TaskSummary;
+  reason: TaskChangeReason;
+}
+
+export interface TaskRecord extends TaskSummary {
+  version: number;
+  evidence: {
+    source: 'codex-rollout';
+    sessionFile: string;
+    eventCount: number;
+  };
+  document: {
+    format: 'markdown';
+    generatedAt: string;
+    markdown: string;
+    projectFile?: string;
+    generator?: {
+      type: 'model';
+      provider: 'deepseek';
+      model: string;
+      callId: string;
+      skill: {
+        name: string;
+        digest: string;
+      };
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+      };
+    };
+  } | null;
+  discussion: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt: string;
+    callId?: string;
+  }>;
+  scripts: TaskScript[];
+}
+
+export interface CreateTaskInput {
+  projectRoot: string;
+  conversationId: string;
+  turnIds: string[];
+  title?: string;
+}
+
+export interface TaskResult<T> {
+  status: 'ready' | 'error';
+  source: 'workbench-task';
+  data: T;
+  error: string | null;
+}
+
+export type ProjectAssetCategoryId =
+  | 'agent-instructions'
+  | 'project-overview'
+  | 'design-decisions'
+  | 'development-standards'
+  | 'testing-standards'
+  | 'skills'
+  | 'reference'
+  | 'task-flows';
+
+export interface ProjectAssetFile {
+  relativePath: string;
+  name: string;
+  size: number;
+  updatedAt: string;
+}
+
+export interface ProjectAssetCategory {
+  id: ProjectAssetCategoryId;
+  label: string;
+  basePath: string;
+  writable: boolean;
+  files: ProjectAssetFile[];
+}
+
+export interface ProjectAssetIndex {
+  projectRoot: string;
+  initialized: boolean;
+  tree: ProjectDocumentNode[];
+  categories: ProjectAssetCategory[];
+}
+
+export interface ProjectDocumentNode {
+  type: 'folder' | 'file';
+  name: string;
+  relativePath: string;
+  children: ProjectDocumentNode[];
+}
+
+export interface ProjectAssetDocument {
+  projectRoot: string;
+  category: ProjectAssetCategoryId;
+  relativePath: string;
+  markdown: string;
+}
+
+export interface ProjectAssetDraft {
+  projectRoot: string;
+  taskId: string;
+  category: ProjectAssetCategoryId;
+  relativePath: string;
+  before: string;
+  beforeHash: string;
+  after: string;
+  generatedAt: string;
+  model: string;
+  callId: string;
+}
+
+export interface CreateProjectAssetDraftInput {
+  projectRoot: string;
+  taskId: string;
+  experience: string;
+  category: ProjectAssetCategoryId;
+  relativePath: string;
+}
+
+export interface WriteProjectAssetDraftInput {
+  projectRoot: string;
+  category: ProjectAssetCategoryId;
+  relativePath: string;
+  beforeHash: string;
+  markdown: string;
+}
+
+export interface ProjectAssetResult<T> {
+  status: 'ready' | 'error';
+  source: 'workbench-assets';
+  data: T;
+  error: string | null;
+}
+
+export interface ModelStatus {
+  provider: 'deepseek';
+  model: 'deepseek-v4-flash';
+  configured: boolean;
+  credentialSource: 'saved' | 'environment' | null;
+}
+
+export interface ModelCompletion {
+  callId: string;
+  id: string | null;
+  model: string;
+  content: string;
+  reasoningContent: string | null;
+  finishReason: string | null;
+  latencyMs?: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+}
+
+export interface ModelCallSummary {
+  callId: string;
+  purpose: string;
+  projectRoot: string | null;
+  taskId: string | null;
+  model: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  status: 'running' | 'completed' | 'failed';
+  durationMs: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface ModelCallEvent {
+  version: number;
+  event: 'request.started' | 'response.completed' | 'response.failed';
+  callId: string;
+  timestamp: string;
+  [key: string]: unknown;
+}
+
+export interface ModelResult<T> {
+  status: 'ready' | 'unavailable' | 'error';
+  source: 'deepseek';
+  data: T;
+  error: string | null;
+}
+
 export interface WorkbenchBridge {
   openProject(): Promise<WorkbenchState>;
   getState(): Promise<WorkbenchState>;
   refresh(): Promise<WorkbenchState>;
+  startLiveObservation(): Promise<WorkbenchState>;
+  useHistoryObservation(): Promise<WorkbenchState>;
+  listConversationProjects(): Promise<ConversationHistoryResult<ConversationProjectSummary[]>>;
+  listConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
+  readConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
+  getTrackedSelection(projectRoot: string | null): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  setTrackedSelection(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  listTasks(projectRoot?: string | null): Promise<TaskResult<TaskSummary[]>>;
+  readTask(taskId: string): Promise<TaskResult<TaskRecord | null>>;
+  createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
+  discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
+  saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  onTaskChanged(handler: (change: TaskChangeEvent) => void): () => void;
+  listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
+  createProjectAssetDraft(input: CreateProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDraft | null>>;
+  writeProjectAssetDraft(input: WriteProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
+  initializeProjectDocs(projectRoot: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  createProjectDocsFolder(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  renameProjectDocsFolder(projectRoot: string, relativePath: string, nextName: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  trashProjectDocsFolder(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  createProjectDocsDocument(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  renameProjectDocsDocument(projectRoot: string, relativePath: string, nextName: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  trashProjectDocsDocument(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  getModelStatus(): Promise<ModelResult<ModelStatus>>;
+  saveDeepSeekApiKey(apiKey: string): Promise<ModelResult<ModelStatus>>;
+  clearDeepSeekApiKey(): Promise<ModelResult<ModelStatus>>;
+  testDeepSeekConnection(): Promise<ModelResult<ModelCompletion | null>>;
+  listModelCalls(): Promise<ModelResult<ModelCallSummary[]>>;
+  readModelCall(callId: string): Promise<ModelResult<ModelCallEvent[] | null>>;
   onState(handler: (state: WorkbenchState) => void): () => void;
 }
 
@@ -131,7 +449,6 @@ export function mapWorkbenchTurnsToRecords(
 
   for (const turn of turns) {
     if (turn.type === 'code_change') {
-      if (turn.display === false) continue;
       ordered.push({
         record: mapCodeChange(turn, projectRoot),
         timestamp: toTimestamp(turn.endedAt ?? turn.startedAt),
@@ -196,22 +513,69 @@ function mapAgentOperation(
   const method = node.method || methodForTool(node.name);
   const id = scopedId(turn, node, provider);
   const children: PreviewRecord[] = mapProgramChildren(node.children ?? [], id, projectRoot);
-  const exactPatch = exactPatchFor(node);
-  if (exactPatch) children.push(mapExactPatch(node, exactPatch, id, projectRoot));
+
+  let embeddedChanges: CodeChanges | undefined;
+  const appliedChanges = appliedChangesFor(node);
+  if (appliedChanges) embeddedChanges = mapAppliedChanges(node, appliedChanges, id, projectRoot);
+  const writeContent = provider === 'Cursor' ? writeContentFor(node) : null;
+  if (!embeddedChanges && writeContent) embeddedChanges = mapWriteContent(node, writeContent, id, projectRoot);
+  const replaceContent = provider === 'Cursor' ? strReplaceContentFor(node) : null;
+  if (!embeddedChanges && replaceContent) {
+    embeddedChanges = mapStrReplaceContent(node, replaceContent, id, projectRoot);
+  }
+
+  const row = baseRow(node, 'operation', method, provider, projectRoot, args);
+  const editPath = editPathFor(node, args, embeddedChanges, projectRoot);
+  if (method === 'EDIT' && editPath) {
+    row.scope = lastPathSegment(editPath.relative);
+    row.target = node.name || 'Edit';
+  }
+
   return {
-    ...baseRow(node, 'operation', method, provider, projectRoot, args),
+    ...row,
     id,
     sortTimestamp: toTimestamp(node.startedAt) ?? undefined,
     provider,
     startedAt: formatStartedAt(node.startedAt),
     duration: formatDuration(node),
-    workingDirectory: workingDirectory(args, projectRoot),
+    workingDirectory: editPath?.relative || workingDirectory(args, projectRoot),
     arguments: args,
     result: node.output,
     error: errorText(node),
     rawRecord: rawRecord(node, turn),
     children,
+    embeddedChanges,
+    scopeTooltip: editPath?.relative,
   };
+}
+
+function editPathFor(
+  node: WorkbenchTimelineNode,
+  args: Record<string, unknown>,
+  embedded: CodeChanges | undefined,
+  projectRoot: string | null,
+): { absolute: string; relative: string } | null {
+  const fromArgs = firstString(args, ['file_path', 'path', 'filePath', 'file']);
+  if (fromArgs) {
+    const relative = displayPathFor(fromArgs, projectRoot);
+    return { absolute: fromArgs, relative };
+  }
+  const firstFile = embedded?.files[0]?.path;
+  if (firstFile) {
+    return { absolute: firstFile, relative: displayPathFor(firstFile, projectRoot) };
+  }
+  if (typeof node.output === 'object' && node.output && !Array.isArray(node.output)) {
+    const outputPath = firstString(node.output as Record<string, unknown>, ['file_path', 'path']);
+    if (outputPath) {
+      return { absolute: outputPath, relative: displayPathFor(outputPath, projectRoot) };
+    }
+  }
+  return null;
+}
+
+function lastPathSegment(relativePath: string): string {
+  const parts = relativePath.replaceAll('\\', '/').split('/').filter(Boolean);
+  return parts.at(-1) || relativePath;
 }
 
 function mapProgramChildren(
@@ -289,13 +653,41 @@ function mapCodeChange(
   };
 }
 
-function mapExactPatch(
+function mapAppliedChanges(
   node: WorkbenchTimelineNode,
-  patch: string,
+  changes: Record<string, unknown>,
   parentId: string,
   projectRoot: string | null,
 ): CodeChanges {
-  const files = parsePatchFiles(patch);
+  const files: ChangedFile[] = Object.entries(changes).flatMap<ChangedFile>(([filePath, rawChange]) => {
+    if (!rawChange || typeof rawChange !== 'object' || Array.isArray(rawChange)) return [];
+    const change = rawChange as Record<string, unknown>;
+    const type = typeof change.type === 'string' ? change.type : 'update';
+    const displayPath = displayPathFor(filePath, projectRoot);
+    if (type === 'add' && typeof change.content === 'string') {
+      return [{
+        path: displayPath,
+        change: 'added' as const,
+        language: languageForPath(displayPath),
+        before: '',
+        after: change.content,
+        additions: lineCount(change.content),
+        deletions: 0,
+      }];
+    }
+    const unified = typeof change.unified_diff === 'string' ? change.unified_diff : '';
+    const parsed = parsePatchFiles(`diff --git a/${displayPath} b/${displayPath}\n--- a/${displayPath}\n+++ b/${displayPath}\n${unified}`);
+    return parsed.map(file => ({
+      ...file,
+      path: displayPath,
+      previousPath: typeof change.move_path === 'string'
+        ? displayPathFor(change.move_path, projectRoot)
+        : file.previousPath,
+      change: type === 'delete' ? 'deleted' as const
+        : type === 'move' || change.move_path ? 'renamed' as const
+          : file.change,
+    }));
+  });
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   const summary = `${files.length} ${files.length === 1 ? 'file' : 'files'} · +${additions} −${deletions}`;
@@ -304,7 +696,7 @@ function mapExactPatch(
     kind: 'changes',
     method: 'DIFF',
     status: node.failed ? 'ERROR' : 'CHANGED',
-    source: 'Exact Patch',
+    source: 'Applied patch',
     scope: node.cwd || projectRoot || 'Project',
     target: summary,
     color: node.failed ? '#e1421f' : '#f1971f',
@@ -312,20 +704,251 @@ function mapExactPatch(
     summary,
     files,
     projectFiles: files.map(file => ({ path: file.path, language: file.language, source: file.after, change: file.change })),
-    rawRecord: { attribution: 'exact', source: 'apply_patch', patch, operationId: node.id },
+    rawRecord: { attribution: 'exact', source: 'patch_apply_end', changes, operationId: node.id },
     detailMode: 'files',
   };
 }
 
-function exactPatchFor(node: WorkbenchTimelineNode): string | null {
+function appliedChangesFor(node: WorkbenchTimelineNode): Record<string, unknown> | null {
   if ((node.name ?? '').toLowerCase() !== 'apply_patch') return null;
-  if (node.outcome !== 'exact' || node.failed || node.status !== 'completed') return null;
-  if (typeof node.arguments === 'string' && node.arguments.includes('*** Begin Patch')) return node.arguments;
+  if (node.appliedChangeSuccess !== true || node.failed || node.status !== 'completed') return null;
+  return node.appliedChanges && typeof node.appliedChanges === 'object' && !Array.isArray(node.appliedChanges)
+    ? node.appliedChanges as Record<string, unknown>
+    : null;
+}
+
+export function mapRecordedChangesForTurn(
+  turn: WorkbenchTimelineNode,
+  projectRoot: string | null,
+): CodeChanges | null {
+  const patches = (turn.children ?? [])
+    .filter(node => node.type === 'agent_tool')
+    .map(node => ({ node, changes: appliedChangesFor(node) }))
+    .filter((item): item is { node: WorkbenchTimelineNode; changes: Record<string, unknown> } => item.changes !== null);
+  if (patches.length === 0) return null;
+
+  const files = patches.flatMap(({ node, changes }) =>
+    mapAppliedChanges(node, changes, turn.id, projectRoot).files,
+  );
+  const uniquePaths = new Set(files.map(file => file.path));
+  const additions = files.reduce((total, file) => total + file.additions, 0);
+  const deletions = files.reduce((total, file) => total + file.deletions, 0);
+  const summary = `${uniquePaths.size} ${uniquePaths.size === 1 ? 'file' : 'files'} · ${patches.length} recorded ${patches.length === 1 ? 'patch' : 'patches'} · +${additions} −${deletions}`;
+  const projectFiles = [...new Map(files.map(file => [file.path, {
+    path: file.path,
+    language: file.language,
+    source: file.after,
+    change: file.change,
+  }])).values()];
+
+  return {
+    id: `${turn.id}:recorded-changes`,
+    kind: 'changes',
+    method: 'RECORDED CHANGES',
+    status: 'CHANGED',
+    source: 'Codex',
+    scope: projectRoot || 'Project',
+    target: summary,
+    color: '#f1971f',
+    sortTimestamp: toTimestamp(turn.endedAt ?? turn.startedAt) ?? undefined,
+    summary,
+    files,
+    projectFiles,
+    rawRecord: {
+      attribution: 'recorded-patches',
+      conversationId: turn.conversationId ?? null,
+      turnId: turn.generationId ?? null,
+      patchOperationIds: patches.map(item => item.node.id),
+    },
+    detailMode: 'files',
+  };
+}
+
+function lineCount(value: string): number {
+  return value === '' ? 0 : value.split(/\r?\n/).length;
+}
+
+type WriteContent = {
+  path: string;
+  content: string;
+  truncated: boolean;
+};
+
+function writeContentFor(node: WorkbenchTimelineNode): WriteContent | null {
+  const name = (node.name ?? '').toLowerCase();
+  if (!['write', 'write_file'].includes(name)) return null;
+  if (node.failed) return null;
+  return extractWriteContent(node.arguments);
+}
+
+type StrReplaceContent = {
+  path: string;
+  before: string;
+  after: string;
+};
+
+function strReplaceContentFor(node: WorkbenchTimelineNode): StrReplaceContent | null {
+  const name = (node.name ?? '').toLowerCase();
+  if (!['strreplace', 'search_replace', 'edit'].includes(name)) return null;
+  if (node.failed) return null;
   const args = asRecord(node.arguments);
-  for (const key of ['patch', 'input', 'value']) {
-    if (typeof args[key] === 'string' && args[key].includes('*** Begin Patch')) return args[key];
+  if (args.$summary === 'truncated') return null;
+  const filePath = firstString(args, ['file_path', 'path', 'filePath', 'file']);
+  const before = firstString(args, ['old_string', 'oldString', 'old_str']);
+  const after = firstString(args, ['new_string', 'newString', 'new_str']);
+  if (!filePath || before == null || after == null) return null;
+  return { path: filePath, before, after };
+}
+
+function mapStrReplaceContent(
+  node: WorkbenchTimelineNode,
+  replace: StrReplaceContent,
+  parentId: string,
+  projectRoot: string | null,
+): CodeChanges {
+  const displayPath = displayPathFor(replace.path, projectRoot);
+  const additions = replace.after === '' ? 0 : replace.after.split(/\r?\n/).length;
+  const deletions = replace.before === '' ? 0 : replace.before.split(/\r?\n/).length;
+  const summary = `1 file · +${additions} −${deletions}`;
+  const file = {
+    path: displayPath,
+    change: 'modified' as const,
+    language: languageForPath(displayPath),
+    before: replace.before,
+    after: replace.after,
+    additions,
+    deletions,
+  };
+  return {
+    id: `${parentId}:strreplace-content`,
+    kind: 'changes',
+    method: 'DIFF',
+    status: node.failed ? 'ERROR' : 'CHANGED',
+    source: 'StrReplace',
+    scope: node.cwd || projectRoot || 'Project',
+    target: summary,
+    color: node.failed ? '#e1421f' : '#f1971f',
+    sortTimestamp: toTimestamp(node.startedAt) ?? undefined,
+    summary,
+    files: [file],
+    projectFiles: [{ path: displayPath, language: file.language, source: replace.after, change: 'modified' }],
+    rawRecord: {
+      attribution: 'exact',
+      source: 'strreplace',
+      filePath: replace.path,
+      operationId: node.id,
+    },
+    detailMode: 'files',
+  };
+}
+
+function extractWriteContent(args: unknown): WriteContent | null {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
+  const record = args as Record<string, unknown>;
+
+  if (record.$summary === 'truncated' && typeof record.$preview === 'string') {
+    return parseWritePreview(record.$preview, true);
+  }
+
+  const filePath = firstString(record, ['file_path', 'path', 'filePath', 'file']);
+  const content = firstString(record, ['content', 'contents', 'text']);
+  if (!filePath || content == null) return null;
+  return { path: filePath, content, truncated: false };
+}
+
+function parseWritePreview(preview: string, truncated: boolean): WriteContent | null {
+  try {
+    const parsed = JSON.parse(preview) as Record<string, unknown>;
+    const filePath = firstString(parsed, ['file_path', 'path', 'filePath', 'file']);
+    const content = firstString(parsed, ['content', 'contents', 'text']);
+    if (filePath && content != null) return { path: filePath, content, truncated };
+  } catch {
+    // Preview is often cut mid-string; recover fields with regex.
+  }
+
+  const pathMatch = /"(?:file_path|path|filePath|file)"\s*:\s*"((?:\\.|[^"\\])*)"/.exec(preview);
+  const contentMatch = /"(?:content|contents|text)"\s*:\s*"((?:\\.|[^"\\])*)/.exec(preview);
+  if (!pathMatch || !contentMatch) return null;
+  return {
+    path: unescapeJsonString(pathMatch[1]),
+    content: unescapeJsonString(contentMatch[1]),
+    truncated,
+  };
+}
+
+function mapWriteContent(
+  node: WorkbenchTimelineNode,
+  write: WriteContent,
+  parentId: string,
+  projectRoot: string | null,
+): CodeChanges {
+  const displayPath = displayPathFor(write.path, projectRoot);
+  const lines = write.content === '' ? 0 : write.content.split(/\r?\n/).length;
+  const summary = write.truncated
+    ? `1 file · +${lines} (truncated preview)`
+    : `1 file · +${lines}`;
+  const file = {
+    path: displayPath,
+    change: 'added' as const,
+    language: languageForPath(displayPath),
+    before: '',
+    after: write.content,
+    additions: lines,
+    deletions: 0,
+  };
+  return {
+    id: `${parentId}:write-content`,
+    kind: 'changes',
+    method: 'DIFF',
+    status: node.failed ? 'ERROR' : 'CHANGED',
+    source: write.truncated ? 'Write Preview' : 'Write',
+    scope: node.cwd || projectRoot || 'Project',
+    target: summary,
+    color: node.failed ? '#e1421f' : '#f1971f',
+    sortTimestamp: toTimestamp(node.startedAt) ?? undefined,
+    summary,
+    files: [file],
+    projectFiles: [{ path: displayPath, language: file.language, source: write.content, change: 'added' }],
+    rawRecord: {
+      attribution: 'exact',
+      source: 'write',
+      truncated: write.truncated,
+      filePath: write.path,
+      operationId: node.id,
+    },
+    detailMode: 'files',
+  };
+}
+
+function displayPathFor(filePath: string, projectRoot: string | null): string {
+  const normalized = filePath.replaceAll('\\', '/');
+  if (!projectRoot) return normalized;
+  const root = projectRoot.replaceAll('\\', '/').replace(/\/$/, '');
+  const lowerPath = normalized.toLowerCase();
+  const lowerRoot = root.toLowerCase();
+  if (lowerPath.startsWith(`${lowerRoot}/`)) return normalized.slice(root.length + 1);
+  return normalized;
+}
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string') return value;
   }
   return null;
+}
+
+function unescapeJsonString(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
 }
 
 function baseRow<K extends PreviewRecord['kind']>(
@@ -345,7 +968,7 @@ function baseRow<K extends PreviewRecord['kind']>(
   target: string;
   color: string;
 } {
-  const status = statusFor(node);
+  const status = statusFor(node, method);
   return {
     id: node.id,
     kind,
@@ -378,11 +1001,21 @@ function compactMethod(name: string | undefined): string {
   return name.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
 }
 
-function statusFor(node: WorkbenchTimelineNode): string {
-  const status = (node.status ?? '').toLowerCase();
-  if (node.failed || node.error != null || outputFailed(node.output) || status === 'error' || status === 'failed') return 'ERROR';
+function statusFor(node: WorkbenchTimelineNode, method: string): string {
+  const status = (node.status ?? '').trim().toLowerCase();
+  const failed = node.failed || node.error != null || outputFailed(node.output) || status === 'error' || status === 'failed';
+  const isShell = method === 'SHELL';
+
+  // Only Shell keeps the tool's own status vocabulary for display.
+  if (isShell) {
+    if (failed) return status === 'error' ? 'error' : 'failed';
+    if (status) return status;
+    if (node.incomplete) return 'pending';
+    return 'unknown';
+  }
+
+  if (failed) return 'ERROR';
   if (node.incomplete || status === 'pending' || status === 'running') return 'RUNNING';
-  if (node.outcome === 'transport-only') return 'UNKNOWN';
   return 'OK';
 }
 
@@ -413,10 +1046,18 @@ function providerFrom(node: WorkbenchTimelineNode, fallback: AgentProvider = 'Co
 }
 
 function colorFor(status: string, provider: AgentProvider, kind: PreviewRecord['kind']): string {
-  if (status === 'ERROR') return '#e1421f';
-  if (status === 'RUNNING' || status === 'CHANGED' || status === 'OBSERVED') return '#f1971f';
+  const normalized = status.toLowerCase();
+  if (normalized === 'error' || normalized === 'failed') return '#e1421f';
+  if (normalized === 'running' || normalized === 'pending' || normalized === 'changed' || normalized === 'observed') {
+    return '#f1971f';
+  }
   if (kind === 'call') return '#5b96a3';
   return provider === 'Cursor' ? '#7547d8' : '#6284fa';
+}
+
+export function isErrorStatus(status: string | undefined): boolean {
+  const normalized = (status ?? '').toLowerCase();
+  return normalized === 'error' || normalized === 'failed';
 }
 
 function scopedId(turn: WorkbenchTimelineNode, node: WorkbenchTimelineNode, provider: AgentProvider): string {

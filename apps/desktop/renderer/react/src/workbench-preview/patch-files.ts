@@ -130,7 +130,7 @@ function toChangedFile(file: FileBuilder): ChangedFile {
   };
 }
 
-function languageFor(filePath: string): ChangedFile['language'] {
+export function languageForPath(filePath: string): ChangedFile['language'] {
   const extension = filePath.split('.').at(-1)?.toLowerCase();
   if (extension === 'ts' || extension === 'tsx') return 'typescript';
   if (extension === 'js' || extension === 'jsx' || extension === 'mjs' || extension === 'cjs') return 'javascript';
@@ -138,4 +138,8 @@ function languageFor(filePath: string): ChangedFile['language'] {
   if (extension === 'css') return 'css';
   if (extension === 'md' || extension === 'mdx') return 'markdown';
   return 'typescript';
+}
+
+function languageFor(filePath: string): ChangedFile['language'] {
+  return languageForPath(filePath);
 }

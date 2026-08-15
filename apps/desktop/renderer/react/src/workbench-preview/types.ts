@@ -25,6 +25,10 @@ export interface AgentOperation extends PreviewRowBase {
   error?: string;
   rawRecord: Record<string, unknown>;
   children: PreviewRecord[];
+  /** Exact edit content shown on the Edit row itself (not as a Diff child). */
+  embeddedChanges?: CodeChanges;
+  /** Full relative path shown on Scope hover. */
+  scopeTooltip?: string;
 }
 
 export interface AgentAction extends PreviewRowBase {

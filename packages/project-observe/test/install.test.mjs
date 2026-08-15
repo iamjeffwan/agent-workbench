@@ -41,8 +41,8 @@ test('merge keeps user hooks and replaces previous managed entries', () => {
   assert.equal(merged.hooks.postToolUse.length, 1);
   assert.ok(isWorkbenchManagedHookCommand('node .cursor/hooks/record-agent-tool.mjs'));
   assert.equal(merged.hooks.postToolUseFailure.length, 1);
-  assert.equal(merged.hooks.beforeSubmitPrompt.length, 1);
-  assert.equal(merged.hooks.stop.length, 1);
+  assert.equal(merged.hooks.beforeSubmitPrompt?.length ?? 0, 0);
+  assert.equal(merged.hooks.stop?.length ?? 0, 0);
   assert.deepEqual(merged.metadata, { owner: 'user' });
 });
 
@@ -97,16 +97,8 @@ test('install writes managed wrappers and merges hooks.json', () => {
       isWorkbenchManagedHookCommand(entry.command),
     ),
   );
-  assert.ok(
-    hooks.hooks.beforeSubmitPrompt.some((entry) =>
-      isWorkbenchManagedHookCommand(entry.command),
-    ),
-  );
-  assert.ok(
-    hooks.hooks.stop.some((entry) =>
-      isWorkbenchManagedHookCommand(entry.command),
-    ),
-  );
+  assert.equal(hooks.hooks.beforeSubmitPrompt?.length ?? 0, 0);
+  assert.equal(hooks.hooks.stop?.length ?? 0, 0);
 
   const observation = JSON.parse(fs.readFileSync(result.observationPath, 'utf8'));
   assert.equal(observation.workbenchHome, repoRoot);

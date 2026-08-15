@@ -25,6 +25,9 @@ export type AgentToolStep = {
   failed?: boolean;
   error?: unknown;
   outcome?: 'exact' | 'transport-only';
+  /** Structured changes reported by Codex after a patch was actually applied. */
+  appliedChanges?: Record<string, unknown>;
+  appliedChangeSuccess?: boolean;
 };
 
 export type CodexRolloutLine = {

@@ -14,10 +14,10 @@ import { parsePatchFiles } from '../renderer/react/src/workbench-preview/patch-f
 import {
   buildObservableTurns,
   buildStandaloneRecords,
+  buildHistoryTurnSections,
   createLiveRange,
-  extendLiveRange,
+  recordsForLiveRange,
   recordsForView,
-  recordsForTurnIds,
 } from '../renderer/react/src/workbench-preview/turn-model.ts';
 
 const records = [
@@ -64,17 +64,16 @@ test('preview starts with program calls expanded below their operation', () => {
   ]);
 });
 
-test('focus filters can promote runtime and change evidence without agent rows', () => {
-  const runtime = reducePreviewState(createPreviewState(records), {
+test('focus filters can promote function and change evidence without agent rows', () => {
+  const functions = reducePreviewState(createPreviewState(records), {
     type: 'set-focus',
-    focus: 'runtime',
+    focus: 'functions',
   });
-  assert.deepEqual(getVisibleRows(records, runtime).map(row => [row.record.id, row.depth]), [
+  assert.deepEqual(getVisibleRows(records, functions).map(row => [row.record.id, row.depth]), [
     ['call-ok', 0],
-    ['network-ok', 0],
   ]);
 
-  const changes = reducePreviewState(runtime, { type: 'set-focus', focus: 'changes' });
+  const changes = reducePreviewState(functions, { type: 'set-focus', focus: 'changes' });
   assert.deepEqual(getVisibleRows(records, changes).map(row => row.record.id), ['changes']);
 });
 
@@ -215,7 +214,7 @@ test('observable turn index excludes read-only turns and keeps search turns', ()
   assert.deepEqual(turns[0].activities, ['SEARCH']);
 });
 
-test('start from now includes the complete latest turn and later activity adds complete turns from every source', () => {
+test('start from now excludes existing commands and includes only later records', () => {
   const initial = buildObservableTurns(workbenchState([
     turn('codex-old', [{ type: 'agent_tool', id: 'old-shell', name: 'Shell' }], 'codex', 1),
     turn('cursor-latest', [
@@ -225,8 +224,7 @@ test('start from now includes the complete latest turn and later activity adds c
   ]));
   const range = createLiveRange(initial);
 
-  assert.deepEqual(range.turnIds, [initial[1].id]);
-  assert.deepEqual(recordsForTurnIds(initial, range.turnIds).map(record => record.method), ['SEARCH', 'EDIT']);
+  assert.deepEqual(recordsForLiveRange(initial, range, []), []);
 
   const updated = buildObservableTurns(workbenchState([
     turn('codex-old', [{ type: 'agent_tool', id: 'old-shell', name: 'Shell' }], 'codex', 1),
@@ -239,12 +237,71 @@ test('start from now includes the complete latest turn and later activity adds c
       { type: 'agent_tool', id: 'new-edit', name: 'apply_patch' },
     ], 'codex', 3),
   ]));
-  const extended = extendLiveRange(range, updated);
 
-  assert.equal(extended.turnIds.length, 2);
-  assert.deepEqual(recordsForTurnIds(updated, extended.turnIds).map(record => record.method), [
-    'SEARCH', 'EDIT', 'WEB', 'EDIT',
+  assert.deepEqual(recordsForLiveRange(updated, range, []).map(record => record.method), [
+    'WEB', 'EDIT',
   ]);
+});
+
+test('history sections keep selected turns ordered and append each recorded diff to its turn', () => {
+  const state = workbenchState([
+    turn('first', [{ type: 'agent_tool', id: 'search-first', name: 'WebSearch' }], 'codex', 1),
+    turn('second', [{
+      type: 'agent_tool',
+      id: 'patch-second',
+      name: 'apply_patch',
+      appliedChangeSuccess: true,
+      appliedChanges: {
+        'F:\\agent-workbench\\src\\app.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-old\n+new' },
+      },
+    }], 'codex', 2),
+  ]);
+  const turns = buildObservableTurns(state);
+  const selected = [
+    { id: 'second', conversationId: 'codex-conversation', userInput: 'Second', startedAt: '2026-08-04T10:02:00.000Z', status: 'completed' },
+    { id: 'first', conversationId: 'codex-conversation', userInput: 'First', startedAt: '2026-08-04T10:01:00.000Z', status: 'completed' },
+  ];
+
+  const sections = buildHistoryTurnSections(turns, selected, []);
+
+  assert.deepEqual(sections.map(section => section.turnId), ['first', 'second']);
+  assert.equal(sections[0].records.at(-1).method, 'WEB');
+  assert.equal(sections[1].records.at(-1).method, 'RECORDED CHANGES');
+});
+
+test('recorded changes appear only in history and preserve each successful patch', () => {
+  const changedPath = 'F:\\agent-workbench\\src\\app.ts';
+  const state = workbenchState([
+    turn('recorded-turn', [
+      {
+        type: 'agent_tool',
+        id: 'patch-one',
+        name: 'apply_patch',
+        appliedChangeSuccess: true,
+        appliedChanges: {
+          [changedPath]: { type: 'update', unified_diff: '@@ -1 +1 @@\n-old\n+middle' },
+        },
+      },
+      {
+        type: 'agent_tool',
+        id: 'patch-two',
+        name: 'apply_patch',
+        appliedChangeSuccess: true,
+        appliedChanges: {
+          [changedPath]: { type: 'update', unified_diff: '@@ -1 +1 @@\n-middle\n+final' },
+        },
+      },
+    ], 'codex', 1),
+  ]);
+  const turns = buildObservableTurns(state);
+
+  const live = recordsForView(turns, [turns[0].id], []);
+  const history = recordsForView(turns, [turns[0].id], [], { includeRecordedChanges: true });
+
+  assert.deepEqual(live.map(record => record.method), ['EDIT', 'EDIT']);
+  assert.equal(history.at(-1).method, 'RECORDED CHANGES');
+  assert.equal(history.at(-1).files.length, 2);
+  assert.match(history.at(-1).summary, /1 file · 2 recorded patches/);
 });
 
 test('observed diffs stay independent while remaining visible in their observation window', () => {
@@ -259,7 +316,10 @@ test('observed diffs stay independent while remaining visible in their observati
       changed: true,
       source: 'git-snapshot',
       attribution: 'unassigned',
-      observationWindow: { generationId: 'cursor-turn' },
+      observationWindow: {
+        conversationId: 'cursor-conversation',
+        generationId: 'cursor-turn',
+      },
       startedAt: '2026-08-04T10:01:00.000Z',
       endedAt: '2026-08-04T10:01:10.000Z',
       afterPatch: 'diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n',
@@ -276,6 +336,72 @@ test('observed diffs stay independent while remaining visible in their observati
   assert.equal(records[1].status, 'OBSERVED');
   assert.equal(records[1].rawRecord.attribution, 'unassigned');
   assert.equal(records[1].files.length, 1);
+});
+
+test('history selection never pulls unrelated standalone evidence from the time between turns', () => {
+  const state = workbenchState([
+    turn('selected-a', [{ type: 'agent_tool', id: 'search-a', name: 'WebSearch' }], 'codex', 1),
+    turn('unselected', [{ type: 'agent_tool', id: 'write-middle', name: 'Write' }], 'codex', 2),
+    turn('selected-b', [{ type: 'agent_tool', id: 'search-b', name: 'WebSearch' }], 'codex', 3),
+    {
+      type: 'code_change',
+      id: 'unrelated-change',
+      method: 'DIFF',
+      display: true,
+      changed: true,
+      source: 'git-snapshot',
+      attribution: 'unassigned',
+      observationWindow: {
+        conversationId: 'codex-conversation',
+        generationId: 'unselected',
+      },
+      startedAt: '2026-08-04T10:02:10.000Z',
+      endedAt: '2026-08-04T10:02:20.000Z',
+      afterPatch: 'diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n',
+      children: [],
+    },
+  ]);
+  const turns = buildObservableTurns(state);
+  const selectedIds = turns
+    .filter(item => item.generationId === 'selected-a' || item.generationId === 'selected-b')
+    .map(item => item.id);
+
+  const records = recordsForView(turns, selectedIds, buildStandaloneRecords(state));
+
+  assert.deepEqual(records.map(record => record.id), [
+    'codex:codex-conversation:search-a',
+    'codex:codex-conversation:search-b',
+  ]);
+});
+
+test('standalone evidence requires both conversation and turn identity', () => {
+  const state = workbenchState([
+    turn('shared-turn', [{ type: 'agent_tool', id: 'selected-search', name: 'WebSearch' }], 'codex', 1),
+    {
+      type: 'code_change',
+      id: 'other-conversation-change',
+      method: 'DIFF',
+      display: true,
+      changed: true,
+      source: 'git-snapshot',
+      attribution: 'unassigned',
+      observationWindow: {
+        conversationId: 'cursor-conversation',
+        generationId: 'shared-turn',
+      },
+      startedAt: '2026-08-04T10:01:10.000Z',
+      endedAt: '2026-08-04T10:01:20.000Z',
+      afterPatch: 'diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n',
+      children: [],
+    },
+  ]);
+  const turns = buildObservableTurns(state);
+
+  const records = recordsForView(turns, [turns[0].id], buildStandaloneRecords(state));
+
+  assert.deepEqual(records.map(record => record.id), [
+    'codex:codex-conversation:selected-search',
+  ]);
 });
 
 function turn(generationId, children, provider = 'codex', minute = 0) {

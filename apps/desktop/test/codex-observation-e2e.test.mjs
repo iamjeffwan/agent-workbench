@@ -4,31 +4,26 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { watchCodexProjectSessions } from '@agent-workbench/codex-adapter';
-import { buildTimeline, readJsonl } from '@agent-workbench/timeline';
+import { readCodexProjectSteps } from '@agent-workbench/codex-adapter';
+import { buildTimeline } from '@agent-workbench/timeline';
 
-test('desktop Codex source keeps projects separate and builds distinct turns', () => {
+test('desktop builds distinct turns directly from selected Codex rollouts', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-codex-e2e-'));
   const projectRoot = path.join(root, 'project with spaces');
   const sessionsDir = path.join(root, 'sessions');
-  const outFile = path.join(projectRoot, '.agent-workbench', 'codex-agent-steps.jsonl');
   fs.mkdirSync(projectRoot, { recursive: true });
-  writeSession(sessionsDir, projectRoot, 'matching', [
+  const matchingSession = writeSession(sessionsDir, projectRoot, 'matching', [
     ['turn-one', 'call-one'],
     ['turn-two', 'call-two'],
   ]);
-  writeSession(sessionsDir, path.join(root, 'other'), 'other', [
+  const otherSession = writeSession(sessionsDir, path.join(root, 'other'), 'other', [
     ['other-turn', 'other-call'],
   ]);
 
-  const watcher = watchCodexProjectSessions({
+  const rows = readCodexProjectSteps({
     projectRoot,
-    sessionsDir,
-    outFile,
-    intervalMs: 60_000,
+    sessionFiles: [matchingSession, otherSession],
   });
-  watcher.close();
-  const rows = readJsonl(outFile);
   const turns = buildTimeline(rows, []);
 
   assert.deepEqual(rows.map((row) => row.id), ['call-one', 'call-two']);
@@ -62,6 +57,7 @@ function writeSession(sessionsDir, cwd, sessionId, calls) {
     `${rows.map(JSON.stringify).join('\n')}\n`,
     'utf8',
   );
+  return path.join(sessionsDir, `rollout-${sessionId}.jsonl`);
 }
 
 function event(type, payload) {

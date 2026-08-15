@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Flow Document"
+  short_description: "Generate evidence-grounded task flow documents"
+  default_prompt: "Use $generate-task-flow-document to turn selected task evidence into a rigorous process document."

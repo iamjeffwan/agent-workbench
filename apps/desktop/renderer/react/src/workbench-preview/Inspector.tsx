@@ -10,6 +10,8 @@ import type { AgentAction, AgentOperation, ChangedFile, CodeChanges, PreviewReco
 import type { DiffLayout } from './view-model';
 import { formatMethodLabel, formatStatusLabel, formatDisplayPath } from './display-labels';
 import { AgentBrandIcon } from './AgentBrandIcon';
+import { FormattedArguments, FormattedResult, buildOperationParams } from './ToolContentViews';
+import { isErrorStatus } from './workbench-data';
 
 const Pane = styled.div`
   width: 100%;
@@ -153,12 +155,80 @@ function formatValue(value: unknown): string {
   }
 }
 
-function OperationInspector({ record }: { record: AgentOperation | AgentAction }) {
+const EditChangesLayout = styled.div`
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+`;
+
+const EditHeaderPane = styled.div`
+  padding: 16px 20px 0;
+  background: ${p => p.theme.containerBackground};
+`;
+
+function OperationInspector({
+  record,
+  diffLayout,
+  focusedChangedPath,
+  sourceModalPath,
+  onDiffLayout,
+  onProjectFile,
+  onCloseSource,
+}: {
+  record: AgentOperation | AgentAction;
+  diffLayout: DiffLayout;
+  focusedChangedPath?: string;
+  sourceModalPath?: string;
+  onDiffLayout(layout: DiffLayout): void;
+  onProjectFile(path: string, changed: boolean): void;
+  onCloseSource(): void;
+}) {
+  const params = buildOperationParams(record.arguments);
+  const embedded = record.kind === 'operation' ? record.embeddedChanges : undefined;
   const heading = <>
     <HeaderIcon><AgentBrandIcon provider={record.provider} size={21} /></HeaderIcon>
+    {embedded ? <HeaderIcon $color="#d57a08"><GitDiff weight="bold" /></HeaderIcon> : null}
     <Pill>{record.provider}</Pill>
     <Pill $color={record.color}>{formatMethodLabel(record.method)} {record.target}</Pill>
   </>;
+
+  if (embedded && record.kind === 'operation') {
+    const filePath = record.workingDirectory
+      || record.scopeTooltip
+      || embedded.files[0]?.path
+      || 'Unavailable';
+    return (
+      <EditChangesLayout aria-label="Selected edit operation details">
+        <EditHeaderPane>
+          <CollapsibleCard title="Operation" accent={record.color} header={heading}>
+            <PropertyGrid>
+              <Label>Status:</Label><Mono>{formatStatusLabel(record.status)}</Mono>
+              <Label>Started:</Label><Mono>{record.startedAt}</Mono>
+              <Label>Duration:</Label><Mono>{record.duration}</Mono>
+              <Label>Directory:</Label><Mono title={filePath}>{filePath}</Mono>
+            </PropertyGrid>
+            <CollapsibleSection contentName="raw record" defaultOpen={false} layout="stacked">
+              <CollapsibleSectionSummary><Label>Raw Record</Label></CollapsibleSectionSummary>
+              <CollapsibleSectionBody><JsonBody value={record.rawRecord} /></CollapsibleSectionBody>
+            </CollapsibleSection>
+          </CollapsibleCard>
+        </EditHeaderPane>
+        <ChangesInspector
+          record={embedded}
+          layout={diffLayout}
+          focusedPath={focusedChangedPath}
+          sourcePath={sourceModalPath}
+          hideFilePaths
+          onLayout={onDiffLayout}
+          onProjectFile={onProjectFile}
+          onCloseSource={onCloseSource}
+        />
+      </EditChangesLayout>
+    );
+  }
+
   return <Pane aria-label="Selected operation details">
     <CollapsibleCard title={record.kind === 'action' ? 'Action' : 'Operation'} accent={record.color} header={heading}>
       <PropertyGrid>
@@ -167,13 +237,13 @@ function OperationInspector({ record }: { record: AgentOperation | AgentAction }
         <Label>Duration:</Label><Mono>{record.duration}</Mono>
         <Label>Directory:</Label><Mono>{record.workingDirectory}</Mono>
       </PropertyGrid>
-      <CollapsibleSection contentName="operation arguments" defaultOpen layout="stacked">
-        <CollapsibleSectionSummary><Label>Arguments</Label></CollapsibleSectionSummary>
-        <CollapsibleSectionBody><JsonBody value={record.arguments} /></CollapsibleSectionBody>
+      <CollapsibleSection contentName="operation parameters" defaultOpen layout="stacked">
+        <CollapsibleSectionSummary><Label>{params.title}</Label></CollapsibleSectionSummary>
+        <CollapsibleSectionBody>{params.body}</CollapsibleSectionBody>
       </CollapsibleSection>
     </CollapsibleCard>
-    <CollapsibleCard title="Result" accent={record.error ? '#e1421f' : '#168a50'} header={<Pill $color={record.error ? '#e1421f' : '#5cb85c'}>{formatStatusLabel(record.status)}</Pill>}>
-      <ResultBox $error={Boolean(record.error)}>{formatValue(record.error ?? record.result)}</ResultBox>
+    <CollapsibleCard title="Result" accent={isErrorStatus(record.status) || Boolean(record.error) ? '#e1421f' : '#168a50'} header={<Pill $color={isErrorStatus(record.status) || record.error ? '#e1421f' : '#5cb85c'}>{formatStatusLabel(record.status)}</Pill>}>
+      <FormattedResult value={record.error ?? record.result} error={isErrorStatus(record.status) || Boolean(record.error)} />
     </CollapsibleCard>
     <CollapsibleCard title="Raw Record" accent="#9a9da8" header={<Pill>JSON</Pill>}>
       <JsonBody value={record.rawRecord} />
@@ -197,36 +267,14 @@ function CallInspector({ record }: { record: ProgramCall }) {
       </PropertyGrid>
       <CollapsibleSection contentName="call arguments" defaultOpen layout="stacked">
         <CollapsibleSectionSummary><Label>Arguments</Label></CollapsibleSectionSummary>
-        <CollapsibleSectionBody><JsonBody value={record.arguments} /></CollapsibleSectionBody>
+        <CollapsibleSectionBody><FormattedArguments value={record.arguments} /></CollapsibleSectionBody>
       </CollapsibleSection>
     </CollapsibleCard>
-    <CollapsibleCard title="Result" accent={record.error ? '#e1421f' : '#168a50'} header={<Pill $color={record.error ? '#e1421f' : '#5cb85c'}>{formatStatusLabel(record.status)}</Pill>}>
-      <ResultBox $error={Boolean(record.error)}>{formatValue(record.error ?? record.result)}</ResultBox>
+    <CollapsibleCard title="Result" accent={isErrorStatus(record.status) || Boolean(record.error) ? '#e1421f' : '#168a50'} header={<Pill $color={isErrorStatus(record.status) || record.error ? '#e1421f' : '#5cb85c'}>{formatStatusLabel(record.status)}</Pill>}>
+      <FormattedResult value={record.error ?? record.result} error={isErrorStatus(record.status) || Boolean(record.error)} />
     </CollapsibleCard>
     <CollapsibleCard title="Raw Record" accent="#9a9da8" header={<Pill>JSON</Pill>}>
       <JsonBody value={record.rawRecord} />
-    </CollapsibleCard>
-  </Pane>;
-}
-
-function ChangeSummaryInspector({ record }: { record: CodeChanges }) {
-  const raw = record.rawRecord ?? {};
-  return <Pane aria-label="Selected code change details">
-    <CollapsibleCard
-      title="Code Change"
-      accent="#f1971f"
-      header={<><HeaderIcon $color="#d57a08"><GitDiff weight="bold" /></HeaderIcon><Pill $color="#f1971f">{formatStatusLabel(record.status)}</Pill></>}
-    >
-      <PropertyGrid>
-        <Label>Status:</Label><Mono>{formatStatusLabel(record.status)}</Mono>
-        <Label>Summary:</Label><Mono>{record.summary}</Mono>
-        <Label>Before:</Label><Mono>{formatValue(raw.beforeHash ?? 'Unavailable')}</Mono>
-        <Label>After:</Label><Mono>{formatValue(raw.afterHash ?? 'Unavailable')}</Mono>
-        <Label>Started:</Label><Mono>{formatValue(raw.startedAt ?? 'Unknown')}</Mono>
-      </PropertyGrid>
-    </CollapsibleCard>
-    <CollapsibleCard title="Raw Record" accent="#9a9da8" header={<Pill>JSON</Pill>}>
-      <JsonBody value={raw} />
     </CollapsibleCard>
   </Pane>;
 }
@@ -238,6 +286,22 @@ const ChangesPane = styled.div`
 `;
 
 const ChangesMain = styled.div`min-width: 0; overflow-y: auto; padding: 16px 20px 40px;`;
+
+const EmptyChanges = styled.div`
+  padding: 24px 18px;
+  border-left: 5px solid ${p => p.theme.warningColor};
+  border-radius: 4px;
+  background: ${p => p.theme.mainBackground};
+  box-shadow: 0 2px 10px rgba(0,0,0,${p => p.theme.boxShadowAlpha});
+  color: ${p => p.theme.mainLowlightColor};
+  p { margin: 0 0 10px; }
+`;
+
+const EmptyTree = styled.div`
+  padding: 8px;
+  color: ${p => p.theme.containerWatermark};
+  font-size: 12.5px;
+`;
 const Toolbar = styled.div`
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px; padding: 8px 10px;
@@ -390,10 +454,11 @@ function buildProjectTree(files: ProjectFile[]): ProjectTreeNode[] {
   return sort(root.children);
 }
 
-function CollapsibleFileCard({ file, layout, defaultCollapsed, cardRef }: {
+function CollapsibleFileCard({ file, layout, defaultCollapsed, hidePath, cardRef }: {
   file: ChangedFile;
   layout: DiffLayout;
   defaultCollapsed: boolean;
+  hidePath?: boolean;
   cardRef(node: HTMLElement | null): void;
 }) {
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
@@ -406,7 +471,7 @@ function CollapsibleFileCard({ file, layout, defaultCollapsed, cardRef }: {
       <header>
         <HeaderIcon $color="#d57a08"><GitDiff weight="bold" /></HeaderIcon>
         <Pill $color={file.change === 'deleted' ? '#e1421f' : file.change === 'added' ? '#5cb85c' : '#f1971f'}>{changeLabel(file.change)}</Pill>
-        <PathPill title={fullPath}>{displayPath}</PathPill>
+        {hidePath ? null : <PathPill title={fullPath}>{displayPath}</PathPill>}
         <h2 onClick={() => setCollapsed(current => !current)}>File Change</h2>
         <FileCardToggle
           type="button"
@@ -483,11 +548,12 @@ function SourceModal({ file, onClose }: { file: ProjectFile; onClose(): void }) 
   </Overlay>;
 }
 
-function ChangesInspector({ record, layout, focusedPath, sourcePath, onLayout, onProjectFile, onCloseSource }: {
+function ChangesInspector({ record, layout, focusedPath, sourcePath, hideFilePaths, onLayout, onProjectFile, onCloseSource }: {
   record: CodeChanges;
   layout: DiffLayout;
   focusedPath?: string;
   sourcePath?: string;
+  hideFilePaths?: boolean;
   onLayout(layout: DiffLayout): void;
   onProjectFile(path: string, changed: boolean): void;
   onCloseSource(): void;
@@ -514,25 +580,35 @@ function ChangesInspector({ record, layout, focusedPath, sourcePath, onLayout, o
         </Segmented>
         <Summary>{record.files.length} FILES · {record.summary}</Summary>
       </Toolbar>
-      {record.files.map((file, index) => (
+      {record.files.length === 0 ? (
+        <EmptyChanges>
+          <p>No file-level patch is available for this change.</p>
+          <Mono>{record.summary}</Mono>
+        </EmptyChanges>
+      ) : record.files.map((file, index) => (
         <CollapsibleFileCard
-          key={file.path}
+          key={`${file.path}:${index}`}
           file={file}
           layout={layout}
           defaultCollapsed={index > 0}
+          hidePath={hideFilePaths}
           cardRef={node => { if (node) refs.current.set(file.path, node); else refs.current.delete(file.path); }}
         />
       ))}
     </ChangesMain>
     <Tree aria-label="Project directory">
       <h2>Project Files</h2>
-      <ProjectTreeRows
-        nodes={projectTree}
-        depth={0}
-        collapsedPaths={collapsedFolders}
-        onToggleFolder={toggleFolder}
-        onProjectFile={onProjectFile}
-      />
+      {projectTree.length === 0 ? (
+        <EmptyTree>No files recorded</EmptyTree>
+      ) : (
+        <ProjectTreeRows
+          nodes={projectTree}
+          depth={0}
+          collapsedPaths={collapsedFolders}
+          onToggleFolder={toggleFolder}
+          onProjectFile={onProjectFile}
+        />
+      )}
     </Tree>
     {modalFile && !modalFile.change ? <SourceModal file={modalFile} onClose={onCloseSource} /> : null}
   </ChangesPane>;
@@ -548,9 +624,23 @@ export function Inspector({ record, diffLayout, focusedChangedPath, sourceModalP
   onCloseSource(): void;
 }) {
   if (!record) return <Pane><ResultBox>Select an activity record to inspect it.</ResultBox></Pane>;
-  if (record.kind === 'operation' || record.kind === 'action') return <OperationInspector record={record} />;
+  if (record.kind === 'operation' || record.kind === 'action') {
+    return (
+      <OperationInspector
+        record={record}
+        diffLayout={diffLayout}
+        focusedChangedPath={focusedChangedPath}
+        sourceModalPath={sourceModalPath}
+        onDiffLayout={onDiffLayout}
+        onProjectFile={onProjectFile}
+        onCloseSource={onCloseSource}
+      />
+    );
+  }
   if (record.kind === 'call') return <CallInspector record={record} />;
   if (record.kind === 'network') return <HttpDetailsPane event={record.event} />;
-  if (record.detailMode === 'summary') return <ChangeSummaryInspector record={record} />;
-  return <ChangesInspector record={record} layout={diffLayout} focusedPath={focusedChangedPath} sourcePath={sourceModalPath} onLayout={onDiffLayout} onProjectFile={onProjectFile} onCloseSource={onCloseSource} />;
+  if (record.kind === 'changes') {
+    return <ChangesInspector record={record} layout={diffLayout} focusedPath={focusedChangedPath} sourcePath={sourceModalPath} onLayout={onDiffLayout} onProjectFile={onProjectFile} onCloseSource={onCloseSource} />;
+  }
+  return <Pane><ResultBox>Unsupported activity record.</ResultBox></Pane>;
 }

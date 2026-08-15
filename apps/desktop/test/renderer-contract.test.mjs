@@ -9,9 +9,34 @@ const desktopRoot = path.resolve(testDir, '..');
 
 test('preload keeps the workbench operations available for later UI integration', () => {
   const preload = fs.readFileSync(path.join(desktopRoot, 'electron/preload.cjs'), 'utf8');
-  for (const operation of ['openProject', 'getState', 'refresh', 'onState']) {
+  for (const operation of [
+    'openProject',
+    'getState',
+    'refresh',
+    'getModelStatus',
+    'saveDeepSeekApiKey',
+    'clearDeepSeekApiKey',
+    'testDeepSeekConnection',
+    'listModelCalls',
+    'readModelCall',
+    'onState',
+  ]) {
     assert.match(preload, new RegExp(`\\b${operation}\\s*:`));
   }
+});
+
+test('page navigation cannot return before PreviewWorkspace finishes declaring hooks', () => {
+  const preview = fs.readFileSync(
+    path.join(desktopRoot, 'renderer/react/src/workbench-preview/PreviewApp.tsx'),
+    'utf8',
+  );
+  const lastWorkspaceHook = preview.indexOf('const historySections = React.useMemo');
+  const sourcesReturn = preview.indexOf("if (page === 'sources') return");
+  const libraryReturn = preview.indexOf("if (page === 'library') return");
+
+  assert.ok(lastWorkspaceHook >= 0);
+  assert.ok(sourcesReturn > lastWorkspaceHook);
+  assert.ok(libraryReturn > lastWorkspaceHook);
 });
 
 test('production renderer is local and retains the declared upstream branding', () => {
@@ -85,6 +110,9 @@ test('desktop loads the production build and uses a development URL only when co
   assert.match(main, /AGENT_WORKBENCH_RENDERER_URL/);
   assert.match(main, /loadFile\(/);
   assert.match(main, /loadURL\(/);
+  assert.match(main, /nodeIntegration:\s*false/);
+  assert.match(main, /contextIsolation:\s*true/);
+  assert.match(main, /sandbox:\s*true/);
 });
 
 test('formal desktop entry loads the connected workbench UI', () => {
@@ -117,9 +145,9 @@ test('preview list uses the bottom toolbar, layered operations and child-only in
 
   assert.equal(packageJson.dependencies['@lobehub/icons-static-svg'], '1.90.0');
   assert.match(app, /selectedPage=\{selectedPage\}/);
-  assert.match(activity, /\$visible=\{record\.kind !== 'operation'\}/);
-  assert.match(activity, /\$kind !== 'operation'/);
-  assert.match(activity, /outline:\s*thin dotted \$\{p\.theme\.popColor\}/);
+  assert.match(activity, /\$visible=\{record\.kind !== 'operation' && !\(record\.kind === 'changes' && depth === 0\)\}/);
+  assert.match(activity, /\(p\.\$kind === 'operation' \|\| p\.\$kind === 'changes'\) && p\.\$depth === 0/);
+  assert.match(activity, /outline:\s*thin dotted \$\{p => p\.theme\.popColor\}/);
   assert.match(activity, /&:hover \$\{Marker\}/);
   assert.match(activity, /&\.selected \$\{Marker\}/);
   assert.match(activity, /inset 0 -1px 0 rgba\(0,0,0,0\.18\)/);
@@ -134,4 +162,23 @@ test('preview list uses the bottom toolbar, layered operations and child-only in
   assert.doesNotMatch(activity, /background-image:\s*linear-gradient/);
   assert.match(brandIcon, /icons\/codex\.svg/);
   assert.match(brandIcon, /icons\/cursor\.svg/);
+});
+
+test('saved task documents render markdown instead of plain preformatted text', () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'),
+  );
+  const library = fs.readFileSync(
+    path.join(desktopRoot, 'renderer/react/src/workbench-preview/AssetsPage.tsx'),
+    'utf8',
+  );
+  const markdownDocument = fs.readFileSync(
+    path.join(desktopRoot, 'renderer/react/src/workbench-preview/MarkdownDocument.tsx'),
+    'utf8',
+  );
+
+  assert.equal(packageJson.dependencies['react-markdown'], '9.0.1');
+  assert.equal(packageJson.dependencies['remark-gfm'], '4.0.1');
+  assert.match(library, /<MarkdownDocument markdown=\{current\.document\.markdown\}/);
+  assert.match(markdownDocument, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}/);
 });

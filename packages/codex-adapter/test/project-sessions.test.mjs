@@ -20,6 +20,39 @@ test('session metadata identifies its project and conversation', () => {
   assert.equal(metadata?.startedAt, '2026-08-03T01:00:00.000Z');
 });
 
+test('session metadata keeps conversation identity when initial cwd is absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-session-identity-'));
+  const sessionFile = path.join(root, 'rollout-no-cwd.jsonl');
+  fs.writeFileSync(
+    sessionFile,
+    `${JSON.stringify(sessionLine('session_meta', {
+      session_id: 'identity-only-session',
+    }))}\n`,
+    'utf8',
+  );
+
+  const metadata = readCodexSessionMetadata(sessionFile);
+
+  assert.equal(metadata?.sessionId, 'identity-only-session');
+  assert.equal(metadata?.cwd, null);
+});
+
+test('session metadata uses the rollout own ID instead of its parent session ID', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-session-own-id-'));
+  const sessionFile = path.join(root, 'rollout-subagent.jsonl');
+  fs.writeFileSync(
+    sessionFile,
+    `${JSON.stringify(sessionLine('session_meta', {
+      id: 'subagent-own-id',
+      session_id: 'parent-user-id',
+      thread_source: 'subagent',
+    }))}\n`,
+    'utf8',
+  );
+
+  assert.equal(readCodexSessionMetadata(sessionFile)?.sessionId, 'subagent-own-id');
+});
+
 test('project matching accepts the project and its children but rejects other places', () => {
   assert.equal(isCodexSessionForProject('C:/work/project', 'C:/work/project'), true);
   assert.equal(isCodexSessionForProject('C:/work/project/packages/app', 'C:/work/project'), true);
@@ -58,6 +91,92 @@ test('project sync writes only matching Codex conversations to its own source fi
   assert.equal(rows[0].conversationId, 'matching-session');
   assert.equal(rows[0].provider, 'codex');
   assert.equal(rows.some((row) => row.id === 'other-call'), false);
+});
+
+test('project sync reads only conversations explicitly selected for tracking', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-selected-sync-'));
+  const projectRoot = path.join(root, 'project');
+  const sessionsDir = path.join(root, 'sessions');
+  const outFile = path.join(projectRoot, '.agent-workbench', 'codex-agent-steps.jsonl');
+  fs.mkdirSync(projectRoot, { recursive: true });
+
+  makeSession({
+    sessionsDir,
+    cwd: projectRoot,
+    sessionId: 'selected-session',
+    callId: 'selected-call',
+  });
+  makeSession({
+    sessionsDir,
+    cwd: projectRoot,
+    sessionId: 'unselected-session',
+    callId: 'unselected-call',
+  });
+
+  const result = syncCodexProjectSessions({
+    projectRoot,
+    sessionsDir,
+    outFile,
+    conversationIds: ['selected-session'],
+  });
+  const rows = fs.readFileSync(outFile, 'utf8').trim().split(/\r?\n/).map(JSON.parse);
+
+  assert.equal(result.sessionCount, 1);
+  assert.deepEqual(rows.map((row) => row.conversationId), ['selected-session']);
+  assert.equal(rows.some((row) => row.id === 'unselected-call'), false);
+});
+
+test('project sync can use indexed rollout paths without rediscovering all sessions', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-indexed-sync-'));
+  const projectRoot = path.join(root, 'project');
+  const indexedDir = path.join(root, 'indexed');
+  const emptySessionsDir = path.join(root, 'empty-sessions');
+  const outFile = path.join(projectRoot, '.agent-workbench', 'codex-agent-steps.jsonl');
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(emptySessionsDir, { recursive: true });
+  const sessionFile = makeSession({
+    sessionsDir: indexedDir,
+    cwd: projectRoot,
+    sessionId: 'indexed-session',
+    callId: 'indexed-call',
+  });
+
+  const result = syncCodexProjectSessions({
+    projectRoot,
+    sessionsDir: emptySessionsDir,
+    sessionFiles: [sessionFile],
+    conversationIds: ['indexed-session'],
+    outFile,
+  });
+
+  assert.equal(result.sessionCount, 1);
+  assert.equal(JSON.parse(fs.readFileSync(outFile, 'utf8').trim()).id, 'indexed-call');
+});
+
+test('indexed rollout paths use turn cwd even when session metadata has no cwd', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-indexed-turn-cwd-'));
+  const projectRoot = path.join(root, 'project');
+  const sessionsDir = path.join(root, 'sessions');
+  const outFile = path.join(projectRoot, '.agent-workbench', 'codex-agent-steps.jsonl');
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const sessionFile = path.join(sessionsDir, 'rollout-turn-cwd.jsonl');
+  const rows = [
+    sessionLine('session_meta', { session_id: 'turn-cwd-session' }),
+    sessionLine('turn_context', { turn_id: 'project-turn', cwd: projectRoot }),
+    ...callRows('turn-cwd-call'),
+  ];
+  fs.writeFileSync(sessionFile, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
+
+  const result = syncCodexProjectSessions({
+    projectRoot,
+    sessionFiles: [sessionFile],
+    conversationIds: ['turn-cwd-session'],
+    outFile,
+  });
+
+  assert.equal(result.sessionCount, 1);
+  assert.equal(JSON.parse(fs.readFileSync(outFile, 'utf8').trim()).id, 'turn-cwd-call');
 });
 
 test('project sync assigns mixed-session tools by each turn context cwd', () => {

@@ -1,6 +1,8 @@
 import type { PreviewRecord } from './types.ts';
+import type { HistoryTurnSummary } from './workbench-data.ts';
 import {
   mapWorkbenchTurnsToRecords,
+  mapRecordedChangesForTurn,
   type AgentProvider,
   type WorkbenchState,
   type WorkbenchTimelineNode,
@@ -31,11 +33,23 @@ export interface ObservableTurnSummary {
   target: string;
   records: PreviewRecord[];
   eventIds: string[];
+  recordedChanges: PreviewRecord | null;
+}
+
+export interface HistoryTurnSection {
+  id: string;
+  turnId: string;
+  conversationId: string;
+  provider: AgentProvider;
+  userInput: string;
+  startedAt: string | null;
+  status: HistoryTurnSummary['status'];
+  records: PreviewRecord[];
 }
 
 export type ViewRange =
   | { kind: 'latest'; turnIds: string[] }
-  | { kind: 'live'; turnIds: string[]; knownEventIds: string[] }
+  | { kind: 'live'; turnIds: string[]; baselineRecordIds: string[] }
   | { kind: 'history'; turnIds: string[] }
   | { kind: 'paused'; turnIds: string[] };
 
@@ -82,26 +96,87 @@ export function recordsForTurnIds(
     .map(item => item.record);
 }
 
+export function observableTurnIdsForHistorySelection(
+  turns: ObservableTurnSummary[],
+  selected: HistoryTurnSummary[],
+): string[] {
+  const identities = new Set(
+    selected.map(turn => `${turn.conversationId}:${turn.id}`),
+  );
+  return turns
+    .filter(turn => identities.has(`${turn.conversationId}:${turn.generationId}`))
+    .map(turn => turn.id);
+}
+
 export function recordsForView(
   turns: ObservableTurnSummary[],
   turnIds: string[],
   standalone: PreviewRecord[],
+  options: { includeRecordedChanges?: boolean } = {},
 ): PreviewRecord[] {
   const selected = turns.filter(turn => turnIds.includes(turn.id));
   if (selected.length === 0) return sortRecords(standalone);
-  const generationIds = new Set(selected.map(turn => turn.generationId));
-  const start = Math.min(...selected.map(turn => turn.startedAt));
-  const end = Math.max(...selected.map(turn => turn.lastObservableAt));
+  const selectedIdentities = new Set(
+    selected.map(turn => `${turn.conversationId}:${turn.generationId}`),
+  );
   const visibleEvidence = standalone.filter(record => {
-    const observationTurn = observationGenerationId(record);
-    if (observationTurn && generationIds.has(observationTurn)) return true;
-    const time = record.sortTimestamp;
-    return typeof time === 'number' && time >= start && time <= end;
+    const observation = observationIdentity(record);
+    return observation !== null && selectedIdentities.has(
+      `${observation.conversationId}:${observation.generationId}`,
+    );
   });
   return sortRecords([
     ...recordsForTurnIds(turns, turnIds),
+    ...(options.includeRecordedChanges
+      ? selected.flatMap(turn => turn.recordedChanges ? [turn.recordedChanges] : [])
+      : []),
     ...visibleEvidence,
   ]);
+}
+
+export function buildHistoryTurnSections(
+  turns: ObservableTurnSummary[],
+  selectedTurns: HistoryTurnSummary[],
+  standalone: PreviewRecord[],
+): HistoryTurnSection[] {
+  const observableByIdentity = new Map(
+    turns.map(turn => [`${turn.conversationId}:${turn.generationId}`, turn]),
+  );
+  return [...selectedTurns]
+    .sort((left, right) => historyTimestamp(left.startedAt) - historyTimestamp(right.startedAt))
+    .map(selected => {
+      const turn = observableByIdentity.get(`${selected.conversationId}:${selected.id}`);
+      const identity = `${selected.conversationId}:${selected.id}`;
+      const evidence = standalone.filter(record => {
+        const observation = observationIdentity(record);
+        return observation !== null && `${observation.conversationId}:${observation.generationId}` === identity;
+      });
+      return {
+        id: identity,
+        turnId: selected.id,
+        conversationId: selected.conversationId,
+        provider: turn?.provider ?? 'Codex',
+        userInput: selected.userInput,
+        startedAt: selected.startedAt,
+        status: selected.status,
+        records: [
+          ...sortRecords([...(turn?.records ?? []), ...evidence]),
+          ...(turn?.recordedChanges ? [turn.recordedChanges] : []),
+        ],
+      };
+    });
+}
+
+export function recordsForLiveRange(
+  turns: ObservableTurnSummary[],
+  range: Extract<ViewRange, { kind: 'live' }>,
+  standalone: PreviewRecord[],
+): PreviewRecord[] {
+  const baseline = new Set(range.baselineRecordIds);
+  return filterRecordsAfterBaseline(
+    sortRecords([...turns.flatMap(turn => turn.records), ...standalone]),
+    baseline,
+  );
 }
 
 export function eventIdsForTurns(turns: ObservableTurnSummary[]): string[] {
@@ -110,26 +185,22 @@ export function eventIdsForTurns(turns: ObservableTurnSummary[]): string[] {
 
 export function extendLiveRange(
   range: Extract<ViewRange, { kind: 'live' }>,
-  turns: ObservableTurnSummary[],
+  _turns: ObservableTurnSummary[],
 ): Extract<ViewRange, { kind: 'live' }> {
-  const knownEvents = new Set(range.knownEventIds);
-  const turnIds = new Set(range.turnIds);
-  for (const turn of turns) {
-    if (turn.eventIds.some(id => !knownEvents.has(id))) turnIds.add(turn.id);
-  }
-  return {
-    kind: 'live',
-    turnIds: turns.filter(turn => turnIds.has(turn.id)).map(turn => turn.id),
-    knownEventIds: eventIdsForTurns(turns),
-  };
+  return range;
 }
 
-export function createLiveRange(turns: ObservableTurnSummary[]): Extract<ViewRange, { kind: 'live' }> {
-  const latest = latestObservableTurn(turns);
+export function createLiveRange(
+  turns: ObservableTurnSummary[],
+  standalone: PreviewRecord[] = [],
+): Extract<ViewRange, { kind: 'live' }> {
   return {
     kind: 'live',
-    turnIds: latest ? [latest.id] : [],
-    knownEventIds: eventIdsForTurns(turns),
+    turnIds: [],
+    baselineRecordIds: flattenRecords([
+      ...turns.flatMap(turn => turn.records),
+      ...standalone,
+    ]).map(record => record.id),
   };
 }
 
@@ -150,11 +221,15 @@ export function createFixtureTurns(records: PreviewRecord[]): ObservableTurnSumm
       generationId: group.generationId,
       startedAt,
       lastObservableAt: startedAt + 30_000,
-      status: group.records.some(record => record.status === 'ERROR') ? 'ERROR' : 'OK',
+      status: group.records.some(record => {
+        const status = record.status.toLowerCase();
+        return status === 'error' || status === 'failed';
+      }) ? 'ERROR' : 'OK',
       activities,
       scope: representative.scope,
       target: representative.target,
       records: group.records,
+      recordedChanges: null,
       eventIds,
     };
   });
@@ -188,6 +263,7 @@ function summarizeTurn(
     scope: representative.scope,
     target: representative.target,
     records,
+    recordedChanges: mapRecordedChangesForTurn(turn, projectRoot),
     eventIds: collectNodes(turn)
       .filter(node => classifyNode(node).length > 0)
       .map(node => [
@@ -235,7 +311,10 @@ function classifyNode(node: WorkbenchTimelineNode): ObservableActivity[] {
 }
 
 function classifyPreviewRecord(record: PreviewRecord): ObservableActivity[] {
-  if (record.status === 'ERROR') return [...classifyPreviewRecordBase(record), 'ERROR'];
+  const status = record.status.toLowerCase();
+  if (status === 'error' || status === 'failed') {
+    return [...classifyPreviewRecordBase(record), 'ERROR'];
+  }
   return classifyPreviewRecordBase(record);
 }
 
@@ -299,12 +378,19 @@ function timestamp(value: unknown): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function observationGenerationId(record: PreviewRecord): string | null {
+function observationIdentity(record: PreviewRecord): {
+  conversationId: string;
+  generationId: string;
+} | null {
   if (record.kind !== 'changes' || !record.rawRecord) return null;
   const window = record.rawRecord.observationWindow;
   if (!window || typeof window !== 'object' || Array.isArray(window)) return null;
-  const generationId = (window as Record<string, unknown>).generationId;
-  return typeof generationId === 'string' ? generationId : null;
+  const observation = window as Record<string, unknown>;
+  const conversationId = observation.conversationId;
+  const generationId = observation.generationId;
+  return typeof conversationId === 'string' && typeof generationId === 'string'
+    ? { conversationId, generationId }
+    : null;
 }
 
 function sortRecords(records: PreviewRecord[]): PreviewRecord[] {
@@ -316,4 +402,28 @@ function sortRecords(records: PreviewRecord[]): PreviewRecord[] {
       left.index - right.index,
     )
     .map(item => item.record);
+}
+
+function filterRecordsAfterBaseline(
+  records: PreviewRecord[],
+  baseline: Set<string>,
+): PreviewRecord[] {
+  return records.flatMap(record => {
+    const children = 'children' in record
+      ? filterRecordsAfterBaseline(record.children ?? [], baseline)
+      : [];
+    if (!baseline.has(record.id)) {
+      return [{ ...record, ...('children' in record ? { children } : {}) } as PreviewRecord];
+    }
+    if (children.length > 0 && 'children' in record) {
+      return [{ ...record, children } as PreviewRecord];
+    }
+    return [];
+  });
+}
+
+function historyTimestamp(value: string | null): number {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }

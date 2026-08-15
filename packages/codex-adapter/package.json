@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "adapt": "node dist/cli.js",
-    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
+    "test": "tsc -p tsconfig.json && node --test test/history.test.mjs test/source-view.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

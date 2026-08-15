@@ -16,6 +16,9 @@ const METHOD_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   OK: 'Ok',
   ERROR: 'Error',
+  FAILED: 'Failed',
+  COMPLETED: 'Completed',
+  PENDING: 'Pending',
   CHANGED: 'Changed',
   RUNNING: 'Running',
   OBSERVED: 'Observed',
@@ -40,7 +43,10 @@ export function formatMethodLabel(method: string): string {
 
 export function formatStatusLabel(status: string): string {
   if (/^\d{3}$/.test(status)) return status;
-  return STATUS_LABELS[status.toUpperCase()] ?? status;
+  const mapped = STATUS_LABELS[status.toUpperCase()];
+  if (mapped) return mapped;
+  if (!status) return 'Unknown';
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 }
 
 export function formatDisplayPath(path: string, maxLength = 52): string {

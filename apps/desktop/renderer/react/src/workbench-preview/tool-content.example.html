@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工具内容可读排版 · 效果样例</title>
+  <style>
+    :root {
+      --bg: #e4e8ed;
+      --card: #fafafa;
+      --ink: #222;
+      --muted: #7a808c;
+      --line: #d5dae2;
+      --ok: #168a50;
+      --search: #6284fa;
+      --cmd: #7547d8;
+      --stdout: #5b96a3;
+      --soft: #eef1f5;
+      --mono: "DM Mono", "Cascadia Mono", "Consolas", monospace;
+      --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px 24px 48px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+    .lead {
+      margin: 0 0 24px;
+      color: var(--muted);
+      max-width: 720px;
+      line-height: 1.5;
+    }
+    .case {
+      margin-bottom: 28px;
+      padding: 18px;
+      border-radius: 6px;
+      background: var(--card);
+      box-shadow: 0 2px 10px rgba(0,0,0,.08);
+    }
+    .case h2 {
+      margin: 0 0 14px;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+      color: var(--muted);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .panel header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .panel .body { padding: 14px; }
+    .before {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.45;
+      color: #333;
+      max-height: 420px;
+      overflow: auto;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .chip {
+      display: inline-flex;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: var(--soft);
+      font-size: 13px;
+    }
+    .chip strong { font-family: var(--mono); color: var(--ok); }
+    .label {
+      margin: 0 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .block { margin-bottom: 14px; }
+    .stdout {
+      margin: 0;
+      padding: 12px 14px;
+      border-left: 3px solid var(--stdout);
+      background: var(--soft);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .hit, .cmd, .query {
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      background: var(--soft);
+    }
+    .hit { border-left: 3px solid var(--search); }
+    .cmd, .query { border-left: 3px solid var(--cmd); position: relative; padding-left: 40px; }
+    .query { border-left-color: var(--ok); }
+    .num {
+      position: absolute;
+      left: 12px; top: 10px;
+      width: 18px; height: 18px;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+    }
+    .query .num { color: var(--ok); }
+    .path {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .path .ln { color: var(--search); font-weight: 700; }
+    .text, .cmd pre, .query .text {
+      margin: 0;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body>
+  <h1>工具内容可读排版 · 效果样例</h1>
+  <p class="lead">左侧是现在的原文堆叠，右侧是整理后的展示。用你给的三段内容做对照，方便确认方向是否合适。</p>
+
+  <section class="case">
+    <h2>1. Shell 结果 · Exit code / Output / 搜索命中</h2>
+    <div class="grid">
+      <article class="panel">
+        <header><span>Before</span><span>Raw text</span></header>
+        <div class="body">
+          <pre class="before">Exit code: 0
+Wall time: 1.6 seconds
+Output:
+const a = 8
+const b = 13
+console.log(a)
+
+.\docs\RSS与多媒体内容来源取舍.md:70:第一批用于演示摘要的来源，应选择 RSS 自带全文或正文页面可以稳定公开提取的博客和新闻站。`Dow Jones World News`（道琼斯世界新闻）可以继续作为最新新闻线索，但当前不应进入全文摘要流程。
+.\docs\development-notes.md:19:- Replace development-only worker endpoints with scheduler-driven BullMQ jobs. Current endpoints such as `seed-fetch-sources`, `run-one`, and development backfill endpoints are for local chain verification.
+.\apps\api\test\app.e2e-spec.ts:68:  it('POST /sources creates a source', async () => {
+.\apps\worker\src\jobs\jobs.service.ts:252:  async seedFetchSourceJobs() {
+.\apps\worker\src\jobs\jobs.controller.ts:8:  @Post('seed-fetch-sources')
+.\apps\worker\src\jobs\jobs.controller.ts:9:  seedFetchSource() {
+.\apps\worker\src\jobs\jobs.controller.ts:10:    return this.jobsService.seedFetchSourceJobs();</pre>
+        </div>
+      </article>
+      <article class="panel">
+        <header><span>After</span><span>Structured</span></header>
+        <div class="body">
+          <div class="meta">
+            <span class="chip">Exit code <strong>0</strong></span>
+            <span class="chip">Wall time <strong>1.6 seconds</strong></span>
+          </div>
+          <div class="block">
+            <div class="label">Output</div>
+            <pre class="stdout">const a = 8
+const b = 13
+console.log(a)</pre>
+          </div>
+          <div class="block">
+            <div class="label">Matches · 6</div>
+            <div class="hit">
+              <div class="path">docs/RSS与多媒体内容来源取舍.md<span class="ln">:70</span></div>
+              <div class="text">第一批用于演示摘要的来源，应选择 RSS 自带全文或正文页面可以稳定公开提取的博客和新闻站。`Dow Jones World News`（道琼斯世界新闻）可以继续作为最新新闻线索，但当前不应进入全文摘要流程。</div>
+            </div>
+            <div class="hit">
+              <div class="path">docs/development-notes.md<span class="ln">:19</span></div>
+              <div class="text">- Replace development-only worker endpoints with scheduler-driven BullMQ jobs. Current endpoints such as `seed-fetch-sources`, `run-one`, and development backfill endpoints are for local chain verification.</div>
+            </div>
+            <div class="hit">
+              <div class="path">apps/api/test/app.e2e-spec.ts<span class="ln">:68</span></div>
+              <div class="text">  it('POST /sources creates a source', async () => {</div>
+            </div>
+            <div class="hit">
+              <div class="path">apps/worker/src/jobs/jobs.service.ts<span class="ln">:252</span></div>
+              <div class="text">  async seedFetchSourceJobs() {</div>
+            </div>
+            <div class="hit">
+              <div class="path">apps/worker/src/jobs/jobs.controller.ts<span class="ln">:8</span></div>
+              <div class="text">  @Post('seed-fetch-sources')</div>
+            </div>
+            <div class="hit">
+              <div class="path">apps/worker/src/jobs/jobs.controller.ts<span class="ln">:9</span></div>
+              <div class="text">  seedFetchSource() {</div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>2. 长命令参数 · 按分号拆成多条</h2>
+    <div class="grid">
+      <article class="panel">
+        <header><span>Before</span><span>Raw JSON field</span></header>
+        <div class="body">
+          <pre class="before">"command": "Get-Content -Encoding utf8 -Raw packages/database/prisma/schema.prisma; Get-Content -Encoding utf8 -Raw packages/shared/src/index.ts; rg -n --hidden -g '!**/node_modules/**' -g '!**/dist/**' 'current tab|tabs.query|activeTab|content script|source management|来源管理|discover|radar' apps docs packages"</pre>
+        </div>
+      </article>
+      <article class="panel">
+        <header><span>After</span><span>Structured</span></header>
+        <div class="body">
+          <div class="label">Commands · 3</div>
+          <div class="cmd"><span class="num">1</span><pre>Get-Content -Encoding utf8 -Raw packages/database/prisma/schema.prisma</pre></div>
+          <div class="cmd"><span class="num">2</span><pre>Get-Content -Encoding utf8 -Raw packages/shared/src/index.ts</pre></div>
+          <div class="cmd"><span class="num">3</span><pre>rg -n --hidden -g '!**/node_modules/**' -g '!**/dist/**' 'current tab|tabs.query|activeTab|content script|source management|来源管理|discover|radar' apps docs packages</pre></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="case">
+    <h2>3. search_query · 拆成查询列表</h2>
+    <div class="grid">
+      <article class="panel">
+        <header><span>Before</span><span>Loose object string</span></header>
+        <div class="body">
+          <pre class="before">{search_query:[
+  {q:"site:github.com/RSSNext RSSHub Radar official repository detect website RSS route"},
+  {q:"site:github.com/RSSNext/Folo RSSHub discovery subscribe route official"},
+  {q:"site:rsshub-docs-mirror.github.io RSSHub Radar rules routes official docs"}
+],response_length:"long"}</pre>
+        </div>
+      </article>
+      <article class="panel">
+        <header><span>After</span><span>Structured</span></header>
+        <div class="body">
+          <div class="label">Search queries · 3</div>
+          <div class="query"><span class="num">1</span><div class="text">site:github.com/RSSNext RSSHub Radar official repository detect website RSS route</div></div>
+          <div class="query"><span class="num">2</span><div class="text">site:github.com/RSSNext/Folo RSSHub discovery subscribe route official</div></div>
+          <div class="query"><span class="num">3</span><div class="text">site:rsshub-docs-mirror.github.io RSSHub Radar rules routes official docs</div></div>
+          <div class="meta" style="margin-top:12px;margin-bottom:0">
+            <span class="chip">Response length <strong>long</strong></span>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+</body>
+</html>

@@ -172,7 +172,14 @@ export function PreviewApp() {
       { path: 'apps/desktop/test/renderer-contract.test.mjs', language: 'javascript', source: `import test from 'node:test';\n\ntest('renderer contract', () => {\n  // Production entry remains local.\n});` },
       { path: 'README.md', language: 'markdown', source: '# Agent Workbench\n\nA local observation workbench for coding agents and program internals.' },
     ],
-    rawRecord: { source: 'git-snapshot', attribution: 'unassigned', observationWindow: { generationId: 'preview-cursor-turn' } },
+    rawRecord: {
+      source: 'git-snapshot',
+      attribution: 'unassigned',
+      observationWindow: {
+        conversationId: 'preview-conversation',
+        generationId: 'preview-cursor-turn',
+      },
+    },
     detailMode: 'files',
   },
 ];

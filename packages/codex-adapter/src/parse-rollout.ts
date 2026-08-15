@@ -92,6 +92,52 @@ export function consumeCodexRolloutText(
       continue;
     }
 
+    if (
+      event.type === 'event_msg' &&
+      event.payload?.type === 'patch_apply_end'
+    ) {
+      const turnId = stringOrNull(event.payload.turn_id) || state.generationId;
+      if (!turnId || (state.projectRoot && (!state.cwd || !isPathWithin(state.cwd, state.projectRoot)))) {
+        continue;
+      }
+      const success = event.payload.success === true;
+      const id = `patch:${stringOrNull(event.payload.call_id) || `${turnId}:${event.timestamp || state.steps.length}`}`;
+      const changes = event.payload.changes;
+      const step: AgentToolStep = {
+        kind: 'agent_tool',
+        id,
+        name: 'apply_patch',
+        arguments: {},
+        output: {
+          stdout: event.payload.stdout,
+          stderr: event.payload.stderr,
+        },
+        startedAt: event.timestamp ?? null,
+        endedAt: event.timestamp ?? null,
+        status: 'completed',
+        sessionFile: state.sessionFile,
+        provider: 'codex',
+        conversationId: state.conversationId,
+        generationId: turnId,
+        cwd: state.cwd,
+        projectAssignment: state.cwd ? 'turn_context' : undefined,
+        source: 'codex-rollout',
+        durationMs: 0,
+        failed: !success,
+        error: success ? undefined : event.payload.stderr,
+        outcome: 'exact',
+        appliedChanges: changes && typeof changes === 'object' && !Array.isArray(changes)
+          ? changes as Record<string, unknown>
+          : undefined,
+        appliedChangeSuccess: success,
+      };
+      const existing = byId.get(id);
+      if (existing) state.steps[state.steps.indexOf(existing)] = step;
+      else state.steps.push(step);
+      byId.set(id, step);
+      continue;
+    }
+
     if (event.type !== 'response_item' || !event.payload) {
       continue;
     }
@@ -120,7 +166,7 @@ export function consumeCodexRolloutText(
         ? nested.map((call, index) => ({
             id: `${id}:${index + 1}:${call.name}`,
             name: call.name,
-            arguments: call.arguments,
+            arguments: resolveNestedArguments(rawArguments, call.arguments),
             transportId: id,
             transportName: name,
           }))
@@ -131,6 +177,9 @@ export function consumeCodexRolloutText(
       }
 
       for (const call of calls) {
+        // Successful and failed patch applications are represented by the
+        // authoritative patch_apply_end event, not the pre-execution request.
+        if (call.name === 'apply_patch') continue;
         const safeArguments = redactCredentials(call.arguments);
         const step: AgentToolStep = {
           kind: 'agent_tool',
@@ -391,6 +440,27 @@ function parseJavaScriptArgument(text: string): unknown {
     const common = parseCommonObjectFields(text);
     return Object.keys(common).length > 0 ? common : text;
   }
+}
+
+/**
+ * Codex often writes `const patch = "..."; tools.apply_patch(patch)`.
+ * Nested extraction only sees the identifier; resolve it from the exec source.
+ */
+function resolveNestedArguments(execSource: unknown, args: unknown): unknown {
+  if (typeof execSource !== 'string') return args;
+  if (typeof args === 'string' && /^[A-Za-z_$][\w$]*$/.test(args.trim())) {
+    return resolveIdentifierBinding(execSource, args.trim()) ?? args;
+  }
+  return args;
+}
+
+function resolveIdentifierBinding(source: string, name: string): unknown | null {
+  const pattern = new RegExp(
+    `(?:(?:const|let|var)\\s+${name}\\s*=\\s*)((?:"(?:\\\\.|[^"\\\\])*")|(?:'(?:\\\\.|[^'\\\\])*')|(?:\`(?:\\\\.|[^\\\\\`])*\`))`,
+  );
+  const match = pattern.exec(source);
+  if (!match) return null;
+  return parseStringLiteral(match[1]);
 }
 
 function parseStringLiteral(text: string): string | null {

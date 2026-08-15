@@ -99,6 +99,33 @@ test('Codex unwraps nested exec tools and preserves an exact apply patch payload
   assert.equal(step.outcome, 'exact');
 });
 
+test('Codex resolves apply_patch(patch) when patch is a prior const string binding', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-patch-binding-'));
+  const fixture = path.join(dir, 'rollout-patch-binding.jsonl');
+  const patch = '*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch';
+  const rows = [
+    line('session_meta', { session_id: 'patch-binding', cwd: dir }),
+    line('turn_context', { turn_id: 'turn-binding', cwd: dir }),
+    line('response_item', {
+      type: 'custom_tool_call',
+      name: 'exec',
+      input: `const patch = ${JSON.stringify(patch)};\ntext(await tools.apply_patch(patch));\n`,
+      call_id: 'binding-exec',
+    }),
+    line('response_item', {
+      type: 'custom_tool_call_output',
+      call_id: 'binding-exec',
+      output: '{}',
+    }),
+  ];
+  fs.writeFileSync(fixture, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
+
+  const [step] = parseCodexRollout(fixture);
+  assert.equal(step.name, 'apply_patch');
+  assert.equal(step.arguments, patch);
+  assert.match(String(step.arguments), /\*\*\* Begin Patch/);
+});
+
 test('Codex does not attribute a shared exec result to individual nested tools', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-batched-tools-'));
   const fixture = path.join(dir, 'rollout-batched.jsonl');

@@ -1,18 +1,64 @@
 import * as React from 'react';
-import type { WorkbenchState } from './workbench-data';
+import type {
+  ConversationDetails,
+  ConversationHistoryResult,
+  ConversationProjectSummary,
+  ConversationSummary,
+  CreateTaskInput,
+  CreateProjectAssetDraftInput,
+  ProjectAssetDocument,
+  ProjectAssetDraft,
+  ProjectAssetIndex,
+  ProjectAssetResult,
+  SaveTaskScriptInput,
+  TaskRecord,
+  TaskResult,
+  TaskChangeEvent,
+  TaskSummary,
+  TrackedConversationSelection,
+  WriteProjectAssetDraftInput,
+  WorkbenchState,
+} from './workbench-data';
 
 export interface WorkbenchConnection {
   state: WorkbenchState | null;
   loading: boolean;
   bridgeAvailable: boolean;
-  openProject(): Promise<void>;
+  openProject(): Promise<WorkbenchState | null>;
   refresh(): Promise<WorkbenchState | null>;
+  startLiveObservation(): Promise<WorkbenchState | null>;
+  useHistoryObservation(): Promise<WorkbenchState | null>;
+  listConversationProjects(): Promise<ConversationHistoryResult<ConversationProjectSummary[]>>;
+  listConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
+  readConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
+  getTrackedSelection(projectRoot: string | null): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  setTrackedSelection(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  listTasks(projectRoot?: string | null): Promise<TaskResult<TaskSummary[]>>;
+  readTask(taskId: string): Promise<TaskResult<TaskRecord | null>>;
+  createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
+  discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
+  saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  taskUpdates: TaskSummary[];
+  taskActivities: TaskChangeEvent[];
+  listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
+  createProjectAssetDraft(input: CreateProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDraft | null>>;
+  writeProjectAssetDraft(input: WriteProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
+  initializeProjectDocs(projectRoot: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  createProjectDocsFolder(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  renameProjectDocsFolder(projectRoot: string, relativePath: string, nextName: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  trashProjectDocsFolder(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  createProjectDocsDocument(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  renameProjectDocsDocument(projectRoot: string, relativePath: string, nextName: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  trashProjectDocsDocument(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
 }
 
 export function useWorkbenchState(): WorkbenchConnection {
   const bridge = window.workbench;
   const [state, setState] = React.useState<WorkbenchState | null>(null);
   const [loading, setLoading] = React.useState(Boolean(bridge));
+  const [taskUpdates, setTaskUpdates] = React.useState<TaskSummary[]>([]);
+  const [taskActivities, setTaskActivities] = React.useState<TaskChangeEvent[]>([]);
 
   React.useEffect(() => {
     if (!bridge) return;
@@ -40,20 +86,30 @@ export function useWorkbenchState(): WorkbenchConnection {
     };
   }, [bridge]);
 
+  React.useEffect(() => bridge?.onTaskChanged(change => {
+    setTaskUpdates(current => [change.task, ...current.filter(item => item.id !== change.task.id)]);
+    if (change.reason.startsWith('generation-')) {
+      setTaskActivities(current => [change, ...current.filter(item => item.task.id !== change.task.id)]);
+    }
+  }), [bridge]);
+
   const openProject = React.useCallback(async () => {
-    if (!bridge) return;
+    if (!bridge) return state;
     setLoading(true);
     try {
-      setState(await bridge.openProject());
+      const next = await bridge.openProject();
+      setState(next);
+      return next;
     } catch (error) {
       setState(current => ({
         ...(current ?? emptyState(null)),
         error: error instanceof Error ? error.message : 'Unable to open the project.',
       }));
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [bridge]);
+  }, [bridge, state]);
 
   const refresh = React.useCallback(async () => {
     if (!bridge) return state;
@@ -73,12 +129,227 @@ export function useWorkbenchState(): WorkbenchConnection {
     }
   }, [bridge, state]);
 
+  const selectObservationMode = React.useCallback(async (mode: 'live' | 'history') => {
+    if (!bridge) return state;
+    setLoading(true);
+    try {
+      const next = mode === 'live'
+        ? await bridge.startLiveObservation()
+        : await bridge.useHistoryObservation();
+      setState(next);
+      return next;
+    } catch (error) {
+      setState(current => ({
+        ...(current ?? emptyState(null)),
+        error: error instanceof Error ? error.message : 'Unable to select the observation mode.',
+      }));
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [bridge, state]);
+
+  const listConversationProjects = React.useCallback(async () => {
+    if (!bridge) return unavailableHistory<ConversationProjectSummary[]>([]);
+    try {
+      return await bridge.listConversationProjects();
+    } catch (error) {
+      return failedHistory<ConversationProjectSummary[]>(error, []);
+    }
+  }, [bridge]);
+
+  const listConversations = React.useCallback(async (projectRoot: string) => {
+    if (!bridge) return unavailableHistory<ConversationSummary[]>([]);
+    try {
+      return await bridge.listConversations(projectRoot);
+    } catch (error) {
+      return failedHistory<ConversationSummary[]>(error, []);
+    }
+  }, [bridge]);
+
+  const readConversation = React.useCallback(async (projectRoot: string, conversationId: string) => {
+    if (!bridge) return unavailableHistory<ConversationDetails | null>(null);
+    try {
+      return await bridge.readConversation(projectRoot, conversationId);
+    } catch (error) {
+      return failedHistory<ConversationDetails | null>(error, null);
+    }
+  }, [bridge]);
+
+  const getTrackedSelection = React.useCallback(async (projectRoot: string | null) => {
+    if (!bridge) return unavailableHistory<TrackedConversationSelection>({ projectRoot: null, conversationIds: [] });
+    try {
+      return await bridge.getTrackedSelection(projectRoot);
+    } catch (error) {
+      return failedHistory<TrackedConversationSelection>(error, { projectRoot: null, conversationIds: [] });
+    }
+  }, [bridge]);
+
+  const setTrackedSelection = React.useCallback(async (projectRoot: string, conversationIds: string[]) => {
+    if (!bridge) return unavailableHistory<TrackedConversationSelection>({ projectRoot: null, conversationIds: [] });
+    try {
+      return await bridge.setTrackedSelection(projectRoot, conversationIds);
+    } catch (error) {
+      return failedHistory<TrackedConversationSelection>(error, { projectRoot: null, conversationIds: [] });
+    }
+  }, [bridge]);
+
+  const listTasks = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableTask<TaskSummary[]>([]);
+    try {
+      return await bridge.listTasks(projectRoot);
+    } catch (error) {
+      return failedTask<TaskSummary[]>(error, []);
+    }
+  }, [bridge]);
+
+  const readTask = React.useCallback(async (taskId: string) => {
+    if (!bridge) return unavailableTask<TaskRecord | null>(null);
+    try {
+      return await bridge.readTask(taskId);
+    } catch (error) {
+      return failedTask<TaskRecord | null>(error, null);
+    }
+  }, [bridge]);
+
+  const createTask = React.useCallback(async (input: CreateTaskInput) => {
+    if (!bridge) return unavailableTask<TaskRecord | null>(null);
+    try {
+      return await bridge.createTask(input);
+    } catch (error) {
+      return failedTask<TaskRecord | null>(error, null);
+    }
+  }, [bridge]);
+
+  const discussTask = React.useCallback(async (taskId: string, message: string) => {
+    if (!bridge) return unavailableTask<TaskRecord | null>(null);
+    try { return await bridge.discussTask(taskId, message); }
+    catch (error) { return failedTask<TaskRecord | null>(error, null); }
+  }, [bridge]);
+
+  const saveTaskScript = React.useCallback(async (taskId: string, input: SaveTaskScriptInput) => {
+    if (!bridge) return unavailableTask<TaskRecord | null>(null);
+    try { return await bridge.saveTaskScript(taskId, input); }
+    catch (error) { return failedTask<TaskRecord | null>(error, null); }
+  }, [bridge]);
+
+  const listProjectAssets = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableAsset<ProjectAssetIndex | null>(null);
+    try { return await bridge.listProjectAssets(projectRoot); }
+    catch (error) { return failedAsset<ProjectAssetIndex | null>(error, null); }
+  }, [bridge]);
+
+  const readProjectAsset = React.useCallback(async (projectRoot: string, relativePath: string) => {
+    if (!bridge) return unavailableAsset<ProjectAssetDocument | null>(null);
+    try { return await bridge.readProjectAsset(projectRoot, relativePath); }
+    catch (error) { return failedAsset<ProjectAssetDocument | null>(error, null); }
+  }, [bridge]);
+
+  const createProjectAssetDraft = React.useCallback(async (input: CreateProjectAssetDraftInput) => {
+    if (!bridge) return unavailableAsset<ProjectAssetDraft | null>(null);
+    try { return await bridge.createProjectAssetDraft(input); }
+    catch (error) { return failedAsset<ProjectAssetDraft | null>(error, null); }
+  }, [bridge]);
+
+  const writeProjectAssetDraft = React.useCallback(async (input: WriteProjectAssetDraftInput) => {
+    if (!bridge) return unavailableAsset<ProjectAssetDocument | null>(null);
+    try { return await bridge.writeProjectAssetDraft(input); }
+    catch (error) { return failedAsset<ProjectAssetDocument | null>(error, null); }
+  }, [bridge]);
+
+  const docsMutation = React.useCallback(async (
+    action: 'initialize' | 'create-folder' | 'rename-folder' | 'trash-folder' | 'create-document' | 'rename-document' | 'trash-document',
+    projectRoot: string,
+    first?: string,
+    second?: string,
+  ) => {
+    if (!bridge) return unavailableAsset<ProjectAssetIndex | null>(null);
+    try {
+      if (action === 'initialize') return await bridge.initializeProjectDocs(projectRoot);
+      if (action === 'create-folder') return await bridge.createProjectDocsFolder(projectRoot, first ?? '');
+      if (action === 'rename-folder') return await bridge.renameProjectDocsFolder(projectRoot, first ?? '', second ?? '');
+      if (action === 'trash-folder') return await bridge.trashProjectDocsFolder(projectRoot, first ?? '');
+      if (action === 'create-document') return await bridge.createProjectDocsDocument(projectRoot, first ?? '');
+      if (action === 'rename-document') return await bridge.renameProjectDocsDocument(projectRoot, first ?? '', second ?? '');
+      return await bridge.trashProjectDocsDocument(projectRoot, first ?? '');
+    } catch (error) { return failedAsset<ProjectAssetIndex | null>(error, null); }
+  }, [bridge]);
+
   return {
     state,
     loading,
     bridgeAvailable: Boolean(bridge),
     openProject,
     refresh,
+    startLiveObservation: () => selectObservationMode('live'),
+    useHistoryObservation: () => selectObservationMode('history'),
+    listConversationProjects,
+    listConversations,
+    readConversation,
+    getTrackedSelection,
+    setTrackedSelection,
+    listTasks,
+    readTask,
+    createTask,
+    discussTask,
+    saveTaskScript,
+    taskUpdates,
+    taskActivities,
+    listProjectAssets,
+    readProjectAsset,
+    createProjectAssetDraft,
+    writeProjectAssetDraft,
+    initializeProjectDocs: (root) => docsMutation('initialize', root),
+    createProjectDocsFolder: (root, target) => docsMutation('create-folder', root, target),
+    renameProjectDocsFolder: (root, target, name) => docsMutation('rename-folder', root, target, name),
+    trashProjectDocsFolder: (root, target) => docsMutation('trash-folder', root, target),
+    createProjectDocsDocument: (root, target) => docsMutation('create-document', root, target),
+    renameProjectDocsDocument: (root, target, name) => docsMutation('rename-document', root, target, name),
+    trashProjectDocsDocument: (root, target) => docsMutation('trash-document', root, target),
+  };
+}
+
+function unavailableAsset<T>(data: T): ProjectAssetResult<T> {
+  return { status: 'error', source: 'workbench-assets', data, error: 'Project assets are unavailable in the static preview.' };
+}
+
+function failedAsset<T>(error: unknown, data: T): ProjectAssetResult<T> {
+  return { status: 'error', source: 'workbench-assets', data, error: error instanceof Error ? error.message : 'Unable to use project assets.' };
+}
+
+function unavailableHistory<T>(data: T): ConversationHistoryResult<T> {
+  return {
+    status: 'unavailable',
+    source: 'codex-rollout',
+    data,
+    error: 'Conversation history is unavailable in the static preview.',
+  };
+}
+
+function failedHistory<T>(error: unknown, data: T): ConversationHistoryResult<T> {
+  return {
+    status: 'error',
+    source: 'codex-rollout',
+    data,
+    error: error instanceof Error ? error.message : 'Unable to read conversation history.',
+  };
+}
+
+function unavailableTask<T>(data: T): TaskResult<T> {
+  return {
+    status: 'error',
+    source: 'workbench-task',
+    data,
+    error: 'Tasks are unavailable in the static preview.',
+  };
+}
+
+function failedTask<T>(error: unknown, data: T): TaskResult<T> {
+  return {
+    status: 'error',
+    source: 'workbench-task',
+    data,
+    error: error instanceof Error ? error.message : 'Unable to read tasks.',
   };
 }
 

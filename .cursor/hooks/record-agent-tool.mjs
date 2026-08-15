@@ -33,7 +33,9 @@ try {
 }
 
 const MAX_ARG_CHARS = 2_000;
+const MAX_WRITE_CHARS = 250_000;
 const MAX_OUTPUT_CHARS = 4_000;
+const LARGE_ARG_TOOLS = new Set(['Write', 'write', 'write_file', 'EditNotebook']);
 
 function main() {
   const raw = fs.readFileSync(0, 'utf8').trim();
@@ -100,7 +102,10 @@ function toAgentStep(payload) {
     kind: 'agent_tool',
     id: toolUseId,
     name: toolName,
-    arguments: summarizeValue(safeArgs, MAX_ARG_CHARS),
+    arguments: summarizeValue(
+      safeArgs,
+      LARGE_ARG_TOOLS.has(toolName) ? MAX_WRITE_CHARS : MAX_ARG_CHARS,
+    ),
     output: summarizeValue(redactCredentials(output), MAX_OUTPUT_CHARS),
     startedAt: now,
     endedAt: now,

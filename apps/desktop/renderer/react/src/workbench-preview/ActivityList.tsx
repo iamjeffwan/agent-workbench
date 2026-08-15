@@ -9,9 +9,12 @@ import { faPause } from '@fortawesome/free-solid-svg-icons/faPause';
 import { faPlay } from '@fortawesome/free-solid-svg-icons/faPlay';
 import { faQuestion } from '@fortawesome/free-solid-svg-icons/faQuestion';
 import { faTimes } from '@fortawesome/free-solid-svg-icons/faTimes';
+import { faCheck } from '@fortawesome/free-solid-svg-icons/faCheck';
+import { faSpinner } from '@fortawesome/free-solid-svg-icons/faSpinner';
 import { faSave } from '@fortawesome/free-solid-svg-icons/faSave';
 import { faTrashAlt } from '@fortawesome/free-regular-svg-icons/faTrashAlt';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { styled, css } from '../upstream/theme';
 import type { PreviewRecord } from './types';
 import type { ActivityFocus, PreviewState, VisibleRow } from './view-model';
@@ -112,7 +115,7 @@ const Row = styled.div<{
   background-clip: padding-box;
   background-color: ${p => p.theme.mainBackground};
 
-  ${p => p.$kind === 'operation' && p.$depth === 0 && css`
+  ${p => (p.$kind === 'operation' || p.$kind === 'changes') && p.$depth === 0 && css`
     position: relative;
     z-index: 1;
     font-weight: 600;
@@ -123,26 +126,63 @@ const Row = styled.div<{
       0 2px 5px rgba(0,0,0,0.13),
       0 0 15px rgba(0,0,0,0.1);
   `}
-  ${p => p.$kind === 'changes' && css`
+  ${p => p.$kind === 'changes' && p.$depth > 0 && css`
     font-weight: 600;
   `}
   ${p => p.$depth > 0 && css`
     font-size: 13.5px;
   `}
 
-  ${p => p.$kind !== 'operation' && css`
-    &.selected {
-      background-color: ${p.theme.highlightBackground};
-      color: ${p.theme.highlightColor};
-      font-weight: bold;
-      outline: thin dotted ${p.theme.popColor};
-      outline-offset: -2px;
-      box-shadow: none;
-    }
-  `}
+  &.selected {
+    background-color: ${p => p.theme.highlightBackground};
+    color: ${p => p.theme.highlightColor};
+    font-weight: bold;
+    outline: thin dotted ${p => p.theme.popColor};
+    outline-offset: -2px;
+    box-shadow: none;
+  }
 
   &:hover ${Marker}, &.selected ${Marker} {
     border-left-color: currentColor;
+  }
+`;
+
+const TurnHeader = styled.div`
+  height: 58px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 20px 22px;
+  column-gap: 9px;
+  align-content: center;
+  padding: 7px 14px 7px 12px;
+  border-left: 5px solid #7057d9;
+  border-bottom: 1px solid ${p => p.theme.containerBorder};
+  background: ${p => p.theme.mainLowlightBackground};
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+
+  .turn-label {
+    color: #7057d9;
+    font: 700 11px ${p => p.theme.titleTextFamily};
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .turn-meta {
+    color: ${p => p.theme.mainLowlightColor};
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .turn-prompt {
+    grid-column: 1 / -1;
+    min-width: 0;
+    overflow: hidden;
+    color: ${p => p.theme.mainColor};
+    font-size: 13px;
+    line-height: 21px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 `;
 
@@ -180,17 +220,77 @@ const ExpandButton = styled.button`
   color: inherit;
 `;
 
-const Status = styled(Cell)<{ $status: string }>`
-  color: ${p => p.$status === 'ERROR'
-    ? p.theme.popColor
-    : p.$status === 'RUNNING' || p.$status === 'CHANGED' || p.$status === 'OBSERVED'
-      ? p.theme.warningColor
-      : /^2/.test(p.$status) || p.$status === 'OK'
-        ? '#168a50'
-        : p.theme.mainLowlightColor};
+const Status = styled(Cell)<{ $status: string; $icon?: boolean }>`
+  display: ${p => p.$icon ? 'flex' : 'block'};
+  align-items: center;
+  justify-content: ${p => p.$icon ? 'center' : 'flex-start'};
+  text-align: ${p => p.$icon ? 'center' : 'left'};
+  color: ${p => {
+    const status = p.$status.toLowerCase();
+    if (status === 'error' || status === 'failed') return p.theme.popColor;
+    if (status === 'running' || status === 'pending' || status === 'changed' || status === 'observed') {
+      return p.theme.warningColor;
+    }
+    if (/^2/.test(p.$status) || status === 'ok' || status === 'completed') return '#168a50';
+    return p.theme.mainLowlightColor;
+  }};
   font-weight: bold;
   font-variant-numeric: tabular-nums;
 `;
+
+const StatusIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  font-size: 13px;
+  line-height: 1;
+`;
+
+const SourceIcons = styled.span`
+  display: grid;
+  grid-template-columns: 16px 18px;
+  align-items: center;
+  justify-items: center;
+  column-gap: 4px;
+`;
+
+const SourceLeading = styled.span`
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+function statusIcon(status: string): { icon: IconDefinition; spin?: boolean } | null {
+  const normalized = status.toLowerCase();
+  if (normalized === 'completed' || normalized === 'ok' || normalized === 'changed' || normalized === 'observed') {
+    return { icon: faCheck };
+  }
+  if (normalized === 'pending' || normalized === 'running') return { icon: faSpinner, spin: true };
+  if (normalized === 'failed' || normalized === 'error') return { icon: faTimes };
+  if (normalized === 'unknown') return { icon: faQuestion };
+  return null;
+}
+
+function StatusCell({ record, depth }: { record: PreviewRecord; depth: number }) {
+  const label = formatStatusLabel(record.status);
+  const useSymbol = depth === 0 && (record.kind === 'operation' || record.kind === 'action' || record.kind === 'changes');
+  if (useSymbol) {
+    const icon = statusIcon(record.status);
+    if (icon) {
+      return (
+        <Status $status={record.status} $icon title={label} aria-label={label}>
+          <StatusIcon>
+            <FontAwesomeIcon icon={icon.icon} spin={icon.spin} />
+          </StatusIcon>
+        </Status>
+      );
+    }
+  }
+  return <Status $status={record.status} title={label}>{label}</Status>;
+}
 
 const SourceCell = styled(Cell)`
   display: flex;
@@ -281,6 +381,21 @@ const RequestCounter = styled.div`
   }
 `;
 
+const ViewMode = styled.div<{ $mode: 'live' | 'paused' | 'historical' }>`
+  min-width: 70px;
+  margin-left: 8px;
+  padding: 5px 8px;
+  border: 1px solid ${p => p.theme.containerBorder};
+  border-radius: 3px;
+  color: ${p => p.$mode === 'live' ? '#168a50' : p.$mode === 'historical' ? p.theme.warningColor : p.theme.mainLowlightColor};
+  background: ${p => p.theme.mainLowlightBackground};
+  font-family: ${p => p.theme.titleTextFamily};
+  font-size: 11px;
+  font-weight: bold;
+  text-align: center;
+  text-transform: uppercase;
+`;
+
 const FocusSelect = styled.select`
   height: 30px;
   min-width: 92px;
@@ -329,7 +444,17 @@ const ProjectButton = styled(IconButton)`
 `;
 
 function SourceIcon({ record }: { record: PreviewRecord }) {
-  if (record.kind === 'operation' || record.kind === 'action') return <AgentBrandIcon provider={record.provider} />;
+  if (record.kind === 'operation' || record.kind === 'action') {
+    const hasEmbedded = record.kind === 'operation' && Boolean(record.embeddedChanges);
+    return (
+      <SourceIcons>
+        <SourceLeading>
+          {hasEmbedded ? <GitDiff weight="bold" color="#d57a08" size={15} /> : null}
+        </SourceLeading>
+        <AgentBrandIcon provider={record.provider} />
+      </SourceIcons>
+    );
+  }
   if (record.kind === 'call') return <FunctionIcon weight="bold" color="#5b96a3" />;
   if (record.kind === 'changes') return <GitDiff weight="bold" color="#d57a08" />;
   if (record.event.source === 'Chrome') return <FontAwesomeIcon icon={faChrome} color="#1da462" />;
@@ -337,8 +462,21 @@ function SourceIcon({ record }: { record: PreviewRecord }) {
   return <Globe weight="bold" color="#6284fa" />;
 }
 
-interface RowData {
+export interface ActivityTurnSection {
+  id: string;
+  label: string;
+  userInput: string;
+  startedAt: string | null;
+  status: string;
   rows: VisibleRow<PreviewRecord>[];
+}
+
+type ActivityListItem =
+  | { kind: 'turn'; section: ActivityTurnSection }
+  | { kind: 'record'; row: VisibleRow<PreviewRecord>; spacing: ReturnType<typeof getRowSpacing> };
+
+interface RowData {
+  items: ActivityListItem[];
   state: PreviewState;
   onSelected(id: string): void;
   onToggle(id: string): void;
@@ -346,10 +484,21 @@ interface RowData {
 
 function ActivityRow({ index, style, data: untypedData }: ListChildComponentProps) {
   const data = untypedData as RowData;
-  const { record, depth } = data.rows[index];
+  const item = data.items[index];
+  if (item.kind === 'turn') {
+    return <TurnHeader style={style} role="row" aria-label={item.section.label}>
+      <span className="turn-label">{item.section.label}</span>
+      <span />
+      <span className="turn-meta">{formatTurnMeta(item.section.startedAt, item.section.status)}</span>
+      <span className="turn-prompt" title={item.section.userInput || 'No user prompt captured'}>
+        {item.section.userInput || 'No user prompt captured'}
+      </span>
+    </TurnHeader>;
+  }
+  const { record, depth } = item.row;
   const selected = record.id === data.state.selectedId;
   const expanded = data.state.expandedOperationIds.includes(record.id);
-  const spacing = getRowSpacing(data.rows, index);
+  const spacing = item.spacing;
   return (
     <Row
       style={style}
@@ -364,7 +513,7 @@ function ActivityRow({ index, style, data: untypedData }: ListChildComponentProp
       onMouseDown={event => event.currentTarget.parentElement?.parentElement?.focus()}
       onClick={() => data.onSelected(record.id)}
     >
-      <Marker $color={record.color} $visible={record.kind !== 'operation'} />
+      <Marker $color={record.color} $visible={record.kind !== 'operation' && !(record.kind === 'changes' && depth === 0)} />
       <MethodCell title={record.method}>
         <MethodLeading>
           {record.kind === 'operation' && record.children.length > 0 ? (
@@ -379,9 +528,11 @@ function ActivityRow({ index, style, data: untypedData }: ListChildComponentProp
         </MethodLeading>
         {formatMethodLabel(record.method)}
       </MethodCell>
-      <Status $status={record.status}>{formatStatusLabel(record.status)}</Status>
+      <StatusCell record={record} depth={depth} />
       <SourceCell title={record.source}><SourceIcon record={record} /></SourceCell>
-      <Cell title={record.scope}>{record.scope}</Cell>
+      <Cell title={record.kind === 'operation' && record.scopeTooltip ? record.scopeTooltip : record.scope}>
+        {record.scope}
+      </Cell>
       <Cell title={record.target}>{record.target}</Cell>
     </Row>
   );
@@ -389,11 +540,13 @@ function ActivityRow({ index, style, data: untypedData }: ListChildComponentProp
 
 export function ActivityList({
   rows,
+  historySections,
   state,
   message,
   messageIsError = false,
   projectRoot,
   following,
+  viewMode,
   onSelected,
   onToggle,
   onQuery,
@@ -403,11 +556,13 @@ export function ActivityList({
   onHistory,
 }: {
   rows: VisibleRow<PreviewRecord>[];
+  historySections?: ActivityTurnSection[];
   state: PreviewState;
   message?: string;
   messageIsError?: boolean;
   projectRoot: string | null;
   following: boolean;
+  viewMode: 'live' | 'paused' | 'historical';
   onSelected(id: string): void;
   onToggle(id: string): void;
   onQuery(query: string): void;
@@ -418,6 +573,20 @@ export function ActivityList({
 }) {
   const hasQuery = state.query.length > 0;
   const projectName = projectRoot ? projectRoot.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || projectRoot : 'Open project';
+  const items = React.useMemo<ActivityListItem[]>(() => historySections
+    ? historySections.flatMap(section => [
+        { kind: 'turn' as const, section },
+        ...section.rows.map((row, index) => ({
+          kind: 'record' as const,
+          row,
+          spacing: getRowSpacing(section.rows, index),
+        })),
+      ])
+    : rows.map((row, index) => ({
+        kind: 'record' as const,
+        row,
+        spacing: getRowSpacing(rows, index),
+      })), [historySections, rows]);
 
   return (
     <Container aria-label="Preview activity list">
@@ -446,11 +615,14 @@ export function ActivityList({
         >
           <option value="all">All</option>
           <option value="agent">Agent</option>
-          <option value="runtime">Runtime</option>
+          <option value="functions">Functions</option>
           <option value="tests">Tests</option>
           <option value="changes">Changes</option>
+          <option value="search">Search</option>
+          <option value="requests">Requests</option>
           <option value="errors">Errors</option>
         </FocusSelect>
+        <ViewMode $mode={viewMode}>{viewMode === 'historical' ? 'History' : viewMode}</ViewMode>
         <RequestCounter>
           <span className="count">{rows.length}</span>
           <span className="label">records</span>
@@ -491,10 +663,10 @@ export function ActivityList({
             <CompatibleList
               height={height}
               width={width}
-              itemCount={rows.length}
-              itemSize={(index: number) => getRowHeight(rows[index])}
-              itemData={{ rows, state, onSelected, onToggle }}
-              itemKey={(index: number) => rows[index].record.id}
+              itemCount={items.length}
+              itemSize={(index: number) => items[index].kind === 'turn' ? 58 : getRowHeight(items[index].row)}
+              itemData={{ items, state, onSelected, onToggle }}
+              itemKey={(index: number) => items[index].kind === 'turn' ? `turn:${items[index].section.id}` : items[index].row.record.id}
               overscanCount={8}
               outerElementType={FocusableListOuter}
             >
@@ -505,4 +677,12 @@ export function ActivityList({
       </Grid>
     </Container>
   );
+}
+
+function formatTurnMeta(startedAt: string | null, status: string): string {
+  const parsed = startedAt ? Date.parse(startedAt) : Number.NaN;
+  const time = Number.isNaN(parsed)
+    ? 'Unknown time'
+    : new Date(parsed).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${time} · ${status}`;
 }

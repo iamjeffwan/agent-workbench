@@ -106,6 +106,7 @@ test('buildTimeline keeps observed code changes as independent unassigned roots'
   assert.equal(change.parentId, null);
   assert.equal(change.attribution, 'unassigned');
   assert.equal(change.source, 'git-snapshot');
+  assert.equal(change.display, false);
 });
 
 test('buildTimeline classifies tests and retains unknown tools without rendering them', () => {

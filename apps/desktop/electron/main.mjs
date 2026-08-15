@@ -1,20 +1,61 @@
 #!/usr/bin/env node
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { watchCodexProjectSessions } from '@agent-workbench/codex-adapter';
+import {
+  defaultCodexSessionsDir,
+  readCodexProjectSteps,
+} from '@agent-workbench/codex-adapter';
 import { installProjectObservation } from '@agent-workbench/project-observe';
 import {
   buildTimeline,
   classifyAgentTool,
   readJsonl,
 } from '@agent-workbench/timeline';
+import { createConversationHistoryService } from './conversation-history.mjs';
+import { createDeepSeekModelService } from './deepseek-model.mjs';
+import { createFlowDocumentGenerator } from './flow-document-generator.mjs';
+import { createProjectAssetsService } from './project-assets.mjs';
+import { createTaskLibraryService } from './task-library.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rendererDistDir = path.join(__dirname, '../dist/renderer');
 const iconPath = path.join(__dirname, '../assets/icon.png');
 const workbenchHome = resolveWorkbenchHome();
+const conversationHistory = createConversationHistoryService({
+  getUserDataPath: () => app.getPath('userData'),
+});
+const deepSeekModel = createDeepSeekModelService({
+  getUserDataPath: () => app.getPath('userData'),
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: value => safeStorage.encryptString(value),
+  decryptString: value => safeStorage.decryptString(value),
+});
+const flowDocumentGenerator = createFlowDocumentGenerator({
+  completeModel: (input, context) => deepSeekModel.complete(input, context),
+  skillDirectory: path.join(
+    __dirname,
+    '../resources/skills/generate-task-flow-document',
+  ),
+});
+const taskLibrary = createTaskLibraryService({
+  getUserDataPath: () => app.getPath('userData'),
+  resolveSessionFiles: (projectRoot, conversationIds) =>
+    conversationHistory.resolveTrackedSessionFiles(projectRoot, conversationIds),
+  generateDocument: input => flowDocumentGenerator.generate(input),
+  completeModel: (input, context) => deepSeekModel.complete(input, context),
+  onChange: change => publishTaskUpdate(change),
+});
+const projectAssets = createProjectAssetsService({
+  readTask: taskId => taskLibrary.readTask(taskId),
+  completeModel: (input, context) => deepSeekModel.complete(input, context),
+  skillInstructions: fs.readFileSync(
+    path.join(__dirname, '../resources/skills/organize-project-asset/SKILL.md'),
+    'utf8',
+  ).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim(),
+  trashItem: target => shell.trashItem(target),
+});
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.agentworkbench.desktop');
@@ -63,7 +104,6 @@ let state = {
   sources: {},
   files: {
     agentSteps: null,
-    codexAgentSteps: null,
     programRecords: null,
     codeChanges: null,
     manifest: null,
@@ -78,9 +118,13 @@ let state = {
 
 /** @type {fs.FSWatcher | null} */
 let watcher = null;
-
-/** @type {import('@agent-workbench/codex-adapter').CodexProjectWatcher | null} */
-let codexWatcher = null;
+/** @type {fs.FSWatcher[]} */
+let codexSourceWatchers = [];
+/** @type {fs.FSWatcher | null} */
+let codexSessionsWatcher = null;
+let codexRefreshTimer = null;
+/** @type {'idle' | 'live' | 'history'} */
+let codexObservationMode = 'idle';
 
 function resolveWorkbenchHome() {
   if (process.env.AGENT_WORKBENCH_HOME) {
@@ -102,7 +146,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -126,7 +170,6 @@ function workbenchPaths(projectRoot) {
   return {
     dir,
     agentSteps: path.join(dir, 'agent-steps.jsonl'),
-    codexAgentSteps: path.join(dir, 'codex-agent-steps.jsonl'),
     programRecords: path.join(dir, 'trace-records.jsonl'),
     codeChanges: path.join(dir, 'code-changes.jsonl'),
     manifest: path.join(dir, 'trace-manifest.json'),
@@ -205,7 +248,6 @@ function refreshState() {
   const paths = workbenchPaths(state.projectRoot);
   state.files = {
     agentSteps: paths.agentSteps,
-    codexAgentSteps: paths.codexAgentSteps,
     programRecords: paths.programRecords,
     codeChanges: paths.codeChanges,
     manifest: paths.manifest,
@@ -214,7 +256,10 @@ function refreshState() {
 
   try {
     const cursorSteps = readJsonl(paths.agentSteps);
-    const codexSteps = readJsonl(paths.codexAgentSteps);
+    const resolved = resolveCodexObservationFiles(state.projectRoot);
+    const codexSteps = resolved.status === 'ready'
+      ? readCodexProjectSteps({ projectRoot: state.projectRoot, sessionFiles: resolved.data.sessionFiles })
+      : [];
     const projectCursorSteps = cursorSteps.filter((step) => stepBelongsToProject(step, state.projectRoot));
     const projectCodexSteps = codexSteps.filter((step) => stepBelongsToProject(step, state.projectRoot));
     const agentSteps = [...projectCursorSteps, ...projectCodexSteps];
@@ -243,7 +288,12 @@ function refreshState() {
     };
     state.adapters.codex = {
       ...state.adapters.codex,
+      status: resolved.status === 'ready' ? 'ready' : 'error',
+      sessionCount: resolved.status === 'ready' ? resolved.data.sessionFiles.length : 0,
       stepCount: codexSteps.filter((step) => !step.parseError).length,
+      lastEventAt: latestTimestamp(codexSteps),
+      lastSyncAt: null,
+      error: resolved.status === 'ready' ? null : resolved.error,
     };
     if (!state.error) {
       state.error = null;
@@ -362,14 +412,16 @@ function publish() {
   }
 }
 
+function publishTaskUpdate(change) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('tasks:changed', change);
+  }
+}
+
 function watchProject(projectRoot) {
   if (watcher) {
     watcher.close();
     watcher = null;
-  }
-  if (codexWatcher) {
-    codexWatcher.close();
-    codexWatcher = null;
   }
   const dir = workbenchPaths(projectRoot).dir;
   fs.mkdirSync(dir, { recursive: true });
@@ -400,30 +452,93 @@ function watchProject(projectRoot) {
       error: error instanceof Error ? error.message : 'Unable to watch project activity',
     };
   }
-  codexWatcher = watchCodexProjectSessions({
-    projectRoot,
-    outFile: workbenchPaths(projectRoot).codexAgentSteps,
-    onChange: () => refreshState(),
-    onSync: (result) => {
-      state.adapters.codex = {
-        ...state.adapters.codex,
-        status: 'ready',
-        sessionCount: result.sessionCount,
-        stepCount: result.stepCount,
-        lastSyncAt: result.syncedAt,
-        error: null,
-      };
-      publish();
-    },
-    onError: () => {
-      state.adapters.codex = {
-        ...state.adapters.codex,
-        status: 'error',
-        error: '会话同步失败',
-      };
-      publish();
-    },
-  });
+  watchCodexSources(projectRoot);
+}
+
+function watchCodexSources(projectRoot) {
+  closeCodexWatchers();
+  if (codexObservationMode === 'idle') return;
+
+  const resolved = resolveCodexObservationFiles(projectRoot);
+  if (resolved.status !== 'ready') return;
+  for (const sessionFile of resolved.data.sessionFiles) {
+    try {
+      const sourceWatcher = fs.watch(sessionFile, { persistent: false }, scheduleCodexRefresh);
+      sourceWatcher.on('error', () => {});
+      codexSourceWatchers.push(sourceWatcher);
+    } catch {
+      // Missing sources are reported by the next explicit refresh.
+    }
+  }
+
+  if (codexObservationMode !== 'live') return;
+  const sessionsDir = defaultCodexSessionsDir();
+  if (!fs.existsSync(sessionsDir)) return;
+  try {
+    codexSessionsWatcher = fs.watch(
+      sessionsDir,
+      { persistent: false, recursive: process.platform === 'win32' },
+      scheduleCodexRefresh,
+    );
+    codexSessionsWatcher.on('error', () => {});
+  } catch {
+    // An explicit refresh still discovers new rollout files if directory watching is unavailable.
+  }
+}
+
+function resolveCodexObservationFiles(projectRoot) {
+  if (codexObservationMode === 'live') {
+    const conversations = conversationHistory.listConversations(projectRoot);
+    return conversations.status === 'ready'
+      ? conversationHistory.resolveTrackedSessionFiles(
+          projectRoot,
+          conversations.data.map(conversation => conversation.id),
+        )
+      : conversations;
+  }
+  if (codexObservationMode === 'history') {
+    const selection = conversationHistory.getTrackedSelection(projectRoot);
+    return selection.status === 'ready'
+      ? conversationHistory.resolveTrackedSessionFiles(projectRoot, selection.data.conversationIds)
+      : selection;
+  }
+  return {
+    status: 'ready',
+    source: 'codex-rollout',
+    data: { projectRoot, conversationIds: [], sessionFiles: [] },
+    error: null,
+  };
+}
+
+function scheduleCodexRefresh() {
+  if (codexRefreshTimer) clearTimeout(codexRefreshTimer);
+  codexRefreshTimer = setTimeout(() => {
+    codexRefreshTimer = null;
+    if (codexObservationMode === 'live' && state.projectRoot) {
+      watchCodexSources(state.projectRoot);
+    }
+    refreshState();
+  }, 120);
+}
+
+function closeCodexWatchers() {
+  for (const sourceWatcher of codexSourceWatchers) sourceWatcher.close();
+  codexSourceWatchers = [];
+  if (codexSessionsWatcher) {
+    codexSessionsWatcher.close();
+    codexSessionsWatcher = null;
+  }
+  if (codexRefreshTimer) clearTimeout(codexRefreshTimer);
+  codexRefreshTimer = null;
+}
+
+function useCodexObservationMode(mode) {
+  codexObservationMode = mode;
+  if (state.projectRoot) {
+    refreshState();
+    watchCodexSources(state.projectRoot);
+  }
+  return state;
 }
 
 function enableObservation(projectRoot) {
@@ -455,7 +570,11 @@ async function openProject() {
     return state;
   }
 
-  const projectRoot = result.filePaths[0];
+  return activateProject(result.filePaths[0]);
+}
+
+function activateProject(projectRoot) {
+  codexObservationMode = 'idle';
   try {
     enableObservation(projectRoot);
     state.error = state.observation?.warnings?.length
@@ -499,6 +618,59 @@ app.whenReady().then(() => {
     refreshState();
     return state;
   });
+  ipcMain.handle('view:startLive', () => useCodexObservationMode('live'));
+  ipcMain.handle('view:useHistory', () => useCodexObservationMode('history'));
+  ipcMain.handle('history:listProjects', () => conversationHistory.listProjects());
+  ipcMain.handle('history:listConversations', (_event, projectRoot) =>
+    conversationHistory.listConversations(projectRoot ?? state.projectRoot));
+  ipcMain.handle('history:readConversation', (_event, projectRoot, conversationId) =>
+    conversationHistory.readConversation(projectRoot ?? state.projectRoot, conversationId));
+  ipcMain.handle('history:getTrackedSelection', (_event, projectRoot) =>
+    conversationHistory.getTrackedSelection(projectRoot ?? state.projectRoot));
+  ipcMain.handle('history:setTrackedSelection', (_event, projectRoot, conversationIds) => {
+    const targetProjectRoot = projectRoot ?? state.projectRoot;
+    const result = conversationHistory.setTrackedSelection(targetProjectRoot, conversationIds);
+    if (result.status === 'ready' && targetProjectRoot) {
+      const isActiveProject = Boolean(
+        state.projectRoot &&
+        comparableProjectPath(state.projectRoot) === comparableProjectPath(targetProjectRoot),
+      );
+      if (conversationIds.length > 0 && !isActiveProject) {
+        activateProject(targetProjectRoot);
+      } else if (isActiveProject) {
+        if (codexObservationMode === 'history') {
+          refreshState();
+          watchCodexSources(state.projectRoot);
+        }
+      }
+    }
+    return result;
+  });
+  ipcMain.handle('tasks:list', (_event, projectRoot) => taskLibrary.listTasks(projectRoot));
+  ipcMain.handle('tasks:read', (_event, taskId) => taskLibrary.readTask(taskId));
+  ipcMain.handle('tasks:create', (_event, input) => taskLibrary.createTask(input));
+  ipcMain.handle('tasks:discuss', (_event, taskId, message) => taskLibrary.discuss(taskId, message));
+  ipcMain.handle('tasks:saveScript', (_event, taskId, input) => taskLibrary.saveScript(taskId, input));
+  ipcMain.handle('assets:list', (_event, projectRoot) => projectAssets.listAssets(projectRoot ?? state.projectRoot));
+  ipcMain.handle('assets:read', (_event, projectRoot, relativePath) =>
+    projectAssets.readAsset(projectRoot ?? state.projectRoot, relativePath));
+  ipcMain.handle('assets:createDraft', (_event, input) => projectAssets.createDraft(input));
+  ipcMain.handle('assets:writeDraft', (_event, input) => projectAssets.writeDraft(input));
+  ipcMain.handle('assets:initializeDocs', (_event, projectRoot) => projectAssets.initializeDocs(projectRoot ?? state.projectRoot));
+  ipcMain.handle('assets:createFolder', (_event, projectRoot, relativePath) => projectAssets.createFolder(projectRoot ?? state.projectRoot, relativePath));
+  ipcMain.handle('assets:renameFolder', (_event, projectRoot, relativePath, nextName) => projectAssets.renameFolder(projectRoot ?? state.projectRoot, relativePath, nextName));
+  ipcMain.handle('assets:trashFolder', (_event, projectRoot, relativePath) => projectAssets.trashFolder(projectRoot ?? state.projectRoot, relativePath));
+  ipcMain.handle('assets:createDocument', (_event, projectRoot, relativePath) => projectAssets.createDocument(projectRoot ?? state.projectRoot, relativePath));
+  ipcMain.handle('assets:renameDocument', (_event, projectRoot, relativePath, nextName) => projectAssets.renameDocument(projectRoot ?? state.projectRoot, relativePath, nextName));
+  ipcMain.handle('assets:trashDocument', (_event, projectRoot, relativePath) => projectAssets.trashDocument(projectRoot ?? state.projectRoot, relativePath));
+  ipcMain.handle('model:getStatus', () => deepSeekModel.getStatus());
+  ipcMain.handle('model:saveDeepSeekApiKey', (_event, apiKey) => deepSeekModel.saveApiKey(apiKey));
+  ipcMain.handle('model:clearDeepSeekApiKey', () => deepSeekModel.clearApiKey());
+  ipcMain.handle('model:testDeepSeekConnection', () => deepSeekModel.testConnection({
+    projectRoot: state.projectRoot,
+  }));
+  ipcMain.handle('model:listCalls', () => deepSeekModel.listCalls());
+  ipcMain.handle('model:readCall', (_event, callId) => deepSeekModel.readCall(callId));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -512,10 +684,7 @@ app.on('window-all-closed', () => {
     watcher.close();
     watcher = null;
   }
-  if (codexWatcher) {
-    codexWatcher.close();
-    codexWatcher = null;
-  }
+  closeCodexWatchers();
   if (process.platform !== 'darwin') {
     app.quit();
   }

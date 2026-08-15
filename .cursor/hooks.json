@@ -20,17 +20,7 @@
         "timeout": 10
       }
     ],
-    "beforeSubmitPrompt": [
-      {
-        "command": "node .agent-workbench/cursor-hooks/record-code-state.mjs start",
-        "timeout": 15
-      }
-    ],
-    "stop": [
-      {
-        "command": "node .agent-workbench/cursor-hooks/record-code-state.mjs end",
-        "timeout": 15
-      }
-    ]
+    "beforeSubmitPrompt": [],
+    "stop": []
   }
 }

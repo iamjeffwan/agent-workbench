@@ -47,6 +47,8 @@ export type AgentStep = {
   transportId?: string;
   transportName?: string;
   outcome?: string;
+  appliedChanges?: Record<string, unknown>;
+  appliedChangeSuccess?: boolean;
 };
 
 export type ProgramRecord = {
@@ -236,6 +238,8 @@ export function buildTimeline(
         transportId: step.transportId || null,
         transportName: step.transportName || null,
         outcome: step.outcome || null,
+        appliedChanges: step.appliedChanges || null,
+        appliedChangeSuccess: step.appliedChangeSuccess ?? null,
         method: classification.method,
         category: classification.category,
         normalized: classification.normalized,

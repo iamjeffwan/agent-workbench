@@ -84,6 +84,19 @@ const SidebarItem = styled.button<{ selected?: boolean; highlight?: boolean; $se
   }
 `;
 
+const Badge = styled.span<{ $tone: 'working' | 'ready' | 'failed' }>`
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: ${p => p.$tone === 'failed' ? '#e1421f' : p.$tone === 'ready' ? '#168a50' : '#f1971f'};
+  color: white;
+  font: 700 10px/15px sans-serif;
+`;
+
 const Separator = styled.div`
   margin-top: auto;
 `;
@@ -91,7 +104,7 @@ const Separator = styled.div`
 const workbenchEntries = [
   ['view', 'View', MagnifyingGlass],
   ['sources', 'Sources', Plugs],
-  ['modify', 'Modify', Pencil],
+  ['library', 'Library', Pencil],
   ['send', 'Send', PaperPlaneTilt],
 ] as const;
 const upstreamEntries = [
@@ -101,18 +114,20 @@ const upstreamEntries = [
   ['send', 'Send', PaperPlaneTilt],
 ] as const;
 
-export type SidebarPage = 'view' | 'sources';
+export type SidebarPage = 'view' | 'sources' | 'library' | 'settings';
 
 export function Sidebar({
   showSelection = true,
   selectedPage = 'view',
   onNavigate,
   workbenchMode = false,
+  libraryBadge,
 }: {
   showSelection?: boolean;
   selectedPage?: SidebarPage;
   onNavigate?(page: SidebarPage): void;
   workbenchMode?: boolean;
+  libraryBadge?: { count: number; tone: 'working' | 'ready' | 'failed' } | null;
 }) {
   const entries = workbenchMode ? workbenchEntries : upstreamEntries;
   return (
@@ -125,14 +140,24 @@ export function Sidebar({
           $selectionSide={workbenchMode ? 'left' : 'right'}
           type="button"
           title={name}
-          onClick={id === 'view' || id === 'sources' ? () => onNavigate?.(id) : undefined}
+          onClick={id === 'view' || id === 'sources' || id === 'library' ? () => onNavigate?.(id) : undefined}
+          style={{ position: 'relative' }}
         >
           <Icon className="phosphor-icon" size={34} />
           {name}
+          {id === 'library' && libraryBadge ? <Badge $tone={libraryBadge.tone}>{libraryBadge.count}</Badge> : null}
         </SidebarItem>
       ))}
       <Separator />
-      <SidebarItem type="button" title="Settings"><GearSix className="phosphor-icon" size={34} />Settings</SidebarItem>
+      <SidebarItem
+        type="button"
+        title="Settings"
+        selected={showSelection && selectedPage === 'settings'}
+        $selectionSide={workbenchMode ? 'left' : 'right'}
+        onClick={workbenchMode ? () => onNavigate?.('settings') : undefined}
+      >
+        <GearSix className="phosphor-icon" size={34} />Settings
+      </SidebarItem>
       <SidebarItem type="button" title="MCP"><Sparkle className="phosphor-icon" size={34} />MCP</SidebarItem>
       <SidebarItem type="button" title={workbenchMode ? 'Feedback' : 'Give feedback'}>
         <ChatText className="phosphor-icon" size={34} />{workbenchMode ? 'Feedback' : 'Give feedback'}
