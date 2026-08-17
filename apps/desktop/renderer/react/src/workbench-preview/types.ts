@@ -16,13 +16,15 @@ export interface PreviewRowBase {
 
 export interface AgentOperation extends PreviewRowBase {
   kind: 'operation';
-  provider: 'Codex' | 'Cursor';
+  provider: 'Codex';
   startedAt: string;
   duration: string;
   workingDirectory: string;
   arguments: Record<string, unknown>;
   result?: unknown;
   error?: string;
+  /** Text content for merged reasoning, user-input, and assistant records. */
+  content?: string;
   rawRecord: Record<string, unknown>;
   children: PreviewRecord[];
   /** Exact edit content shown on the Edit row itself (not as a Diff child). */
@@ -40,6 +42,7 @@ export interface AgentAction extends PreviewRowBase {
   arguments: Record<string, unknown>;
   result?: unknown;
   error?: string;
+  content?: string;
   rawRecord: Record<string, unknown>;
   children?: PreviewRecord[];
 }

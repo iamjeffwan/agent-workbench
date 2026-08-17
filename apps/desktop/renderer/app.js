@@ -237,7 +237,7 @@ function renderTurnNavigation() {
     button.type = 'button';
     button.classList.toggle('active', turn.id === selectedTurnId);
     button.textContent = `${index + 1}. ${turn.provider || '程序'} · ${childCount(turn)} 步`;
-    button.title = turn.generationId || turn.conversationId || turn.name || '';
+    button.title = turn.generationId || turn.sessionId || turn.name || '';
     button.addEventListener('click', () => {
       selectedTurnId = turn.id;
       renderTurnNavigation();

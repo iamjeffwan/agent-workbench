@@ -12,6 +12,21 @@ export {
   type TimelineRoot,
   type TimelineTurn,
   type AgentToolClassification,
+  type TimelineEventKind,
+  type TimelineEvidenceKind,
+  type TimelineEvidenceRef,
 } from './build-timeline.js';
 
 export { readJsonl, type JsonlRow } from './read-jsonl.js';
+
+export {
+  reviewTimelineResults,
+  type ResultReview,
+  type ResultReviewOptions,
+  type ReviewFinding,
+  type ValidationCheck,
+  type ValidationCheckKind,
+  type ValidationCheckResult,
+  type ValidationProfile,
+  type ValidationResult,
+} from './result-review.js';

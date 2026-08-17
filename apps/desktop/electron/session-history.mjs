@@ -1,110 +1,111 @@
 import { createHash } from 'node:crypto';
+// Session history storage and rollout index.
 import fs from 'node:fs';
 import path from 'node:path';
 
 import {
   findCodexSessions,
-  listCodexConversationProjects,
-  readCodexProjectConversation,
+  listCodexSessionProjects,
+  readCodexProjectSession,
   readCodexSessionMetadata,
 } from '@agent-workbench/codex-adapter';
 
 const CONFIG_VERSION = 1;
-const CONFIG_FILE = 'conversation-tracking.json';
+const CONFIG_FILE = 'session-tracking.json';
 const INDEX_VERSION = 3;
-const INDEX_DIRECTORY = 'conversation-history';
+const INDEX_DIRECTORY = 'session-history';
 const SOURCE = 'codex-rollout';
 
 /**
  * Keep Electron-specific state out of the history reader so failures can be
  * returned to the renderer without taking down the main process.
  */
-export function createConversationHistoryService({
+export function createSessionHistoryService({
   getUserDataPath,
   findSessionFiles = findCodexSessions,
-  listConversationProjects = listCodexConversationProjects,
-  readProjectConversation = readCodexProjectConversation,
+  listSessionProjects = listCodexSessionProjects,
+  readProjectSession = readCodexProjectSession,
   readSessionMetadata = readCodexSessionMetadata,
 }) {
-  const conversationCache = new Map();
+  const sessionCache = new Map();
   const detailCache = new Map();
 
-  const loadConversations = (projectRoot, refresh = false) => {
+  const loadSessions = (projectRoot, refresh = false) => {
     const key = projectKey(projectRoot);
-    if (!refresh && conversationCache.has(key)) {
-      return conversationCache.get(key);
+    if (!refresh && sessionCache.has(key)) {
+      return sessionCache.get(key);
     }
-    const conversations = refreshConversationIndex({
+    const sessions = refreshSessionIndex({
       projectRoot,
       indexFile: indexPath(getUserDataPath(), projectRoot),
       findSessionFiles,
-      readProjectConversation,
+      readProjectSession,
       detailCache,
     });
-    conversationCache.set(key, conversations);
-    return conversations;
+    sessionCache.set(key, sessions);
+    return sessions;
   };
 
   return {
     listProjects() {
       try {
-        return ready(listConversationProjects());
+        return ready(listSessionProjects());
       } catch (error) {
-        return failed([], error, 'Unable to discover Codex conversation projects.');
+        return failed([], error, 'Unable to discover Codex session projects.');
       }
     },
 
-    listConversations(projectRoot) {
+    listSessions(projectRoot) {
       if (!projectRoot) {
-        return unavailable([], 'Open a project to browse Codex conversations.');
+        return unavailable([], 'Open a project to browse Codex sessions.');
       }
 
       try {
-        const conversations = loadConversations(projectRoot, true);
-        return ready(conversations);
+        const sessions = loadSessions(projectRoot, true);
+        return ready(sessions);
       } catch (error) {
-        const cached = conversationCache.get(projectKey(projectRoot)) ??
+        const cached = sessionCache.get(projectKey(projectRoot)) ??
           readPersistedSummaries(indexPath(getUserDataPath(), projectRoot), projectRoot);
         return failed(
           cached,
           error,
-          'Unable to read Codex conversation history.',
+          'Unable to read Codex session history.',
         );
       }
     },
 
-    readConversation(projectRoot, conversationId) {
+    readSession(projectRoot, sessionId) {
       if (!projectRoot) {
-        return unavailable(null, 'Open a project to read a Codex conversation.');
+        return unavailable(null, 'Open a project to read a Codex session.');
       }
-      if (typeof conversationId !== 'string' || !conversationId.trim()) {
-        return failed(null, null, 'A conversation ID is required.');
+      if (typeof sessionId !== 'string' || !sessionId.trim()) {
+        return failed(null, null, 'A session ID is required.');
       }
 
       try {
         const target = indexPath(getUserDataPath(), projectRoot);
-        if (!fs.existsSync(target)) loadConversations(projectRoot, true);
+        if (!fs.existsSync(target)) loadSessions(projectRoot, true);
         const index = readIndex(target, projectKey(projectRoot));
         const matches = Object.entries(index.files).filter(([, entry]) =>
-          entry?.summary?.id === conversationId);
+          entry?.summary?.id === sessionId);
         if (matches.length !== 1) {
           return failed(
             null,
             null,
-            'The selected conversation cannot be located exactly in the history index.',
+            'The selected session cannot be located exactly in the history index.',
           );
         }
         const [[sessionFile, entry]] = matches;
-        const conversation = readIndexedConversation({
+        const session = readIndexedSession({
           projectRoot,
-          conversationId,
+          sessionId,
           sessionFile,
-          readProjectConversation,
+          readProjectSession,
           detailCache,
         });
-        return ready(toConversationDetails(conversation));
+        return ready(toSessionDetails(session));
       } catch (error) {
-        return failed(null, error, 'Unable to read the selected Codex conversation.');
+        return failed(null, error, 'Unable to read the selected Codex session.');
       }
     },
 
@@ -120,7 +121,7 @@ export function createConversationHistoryService({
     getTrackedSelection(projectRoot) {
       const empty = trackedSelection(projectRoot, []);
       if (!projectRoot) {
-        return unavailable(empty, 'Open a project to read its tracked conversations.');
+        return unavailable(empty, 'Open a project to read its tracked sessions.');
       }
 
       try {
@@ -128,24 +129,24 @@ export function createConversationHistoryService({
         const project = config.projects[projectKey(projectRoot)];
         return ready(trackedSelection(
           projectRoot,
-          Array.isArray(project?.trackedConversationIds)
-            ? project.trackedConversationIds.filter(value => typeof value === 'string')
+          Array.isArray(project?.trackedSessionIds)
+            ? project.trackedSessionIds.filter(value => typeof value === 'string')
             : [],
         ));
       } catch (error) {
-        return failed(empty, error, 'Unable to read the tracked conversation selection.');
+        return failed(empty, error, 'Unable to read the tracked session selection.');
       }
     },
 
     setTrackedSelection(projectRoot, input) {
       const empty = trackedSelection(projectRoot, []);
       if (!projectRoot) {
-        return unavailable(empty, 'Open a project before saving tracked conversations.');
+        return unavailable(empty, 'Open a project before saving tracked sessions.');
       }
 
-      const conversationIds = normalizeConversationIds(input);
-      if (conversationIds === null) {
-        return failed(empty, null, 'Tracked conversation IDs must be an array of strings.');
+      const sessionIds = normalizeSessionIds(input);
+      if (sessionIds === null) {
+        return failed(empty, null, 'Tracked session IDs must be an array of strings.');
       }
 
       try {
@@ -153,15 +154,15 @@ export function createConversationHistoryService({
         const config = readConfig(target);
         const existing = trackedSelection(
           projectRoot,
-          Array.isArray(config.projects[projectKey(projectRoot)]?.trackedConversationIds)
-            ? config.projects[projectKey(projectRoot)].trackedConversationIds
+          Array.isArray(config.projects[projectKey(projectRoot)]?.trackedSessionIds)
+            ? config.projects[projectKey(projectRoot)].trackedSessionIds
                 .filter(value => typeof value === 'string')
             : [],
         );
-        if (conversationIds.length > 0) {
+        if (sessionIds.length > 0) {
           const resolution = resolveTrackedSessionFilesResult({
             projectRoot,
-            input: conversationIds,
+            input: sessionIds,
             getUserDataPath,
             readSessionMetadata,
           });
@@ -169,19 +170,19 @@ export function createConversationHistoryService({
             return failed(
               existing,
               null,
-              resolution.error ?? 'Unable to validate tracked conversations.',
+              resolution.error ?? 'Unable to validate tracked sessions.',
             );
           }
         }
         config.projects[projectKey(projectRoot)] = {
           projectRoot: path.resolve(projectRoot),
-          trackedConversationIds: conversationIds,
+          trackedSessionIds: sessionIds,
           updatedAt: new Date().toISOString(),
         };
         writeConfig(target, config);
-        return ready(trackedSelection(projectRoot, conversationIds));
+        return ready(trackedSelection(projectRoot, sessionIds));
       } catch (error) {
-        return failed(empty, error, 'Unable to save the tracked conversation selection.');
+        return failed(empty, error, 'Unable to save the tracked session selection.');
       }
     },
   };
@@ -189,19 +190,19 @@ export function createConversationHistoryService({
 
 function resolvedSessionFiles(
   projectRoot,
-  conversationIds,
+  sessionIds,
   sessionFiles,
-  missingConversationIds,
-  staleConversationIds = [],
-  ambiguousConversationIds = [],
+  missingSessionIds,
+  staleSessionIds = [],
+  ambiguousSessionIds = [],
 ) {
   return {
     projectRoot: projectRoot ? path.resolve(projectRoot) : null,
-    conversationIds,
+    sessionIds,
     sessionFiles,
-    missingConversationIds,
-    staleConversationIds,
-    ambiguousConversationIds,
+    missingSessionIds,
+    staleSessionIds,
+    ambiguousSessionIds,
   };
 }
 
@@ -213,43 +214,43 @@ function resolveTrackedSessionFilesResult({
 }) {
   const empty = resolvedSessionFiles(projectRoot, [], [], [], []);
   if (!projectRoot) {
-    return unavailable(empty, 'Open a project to resolve tracked conversations.');
+    return unavailable(empty, 'Open a project to resolve tracked sessions.');
   }
-  const conversationIds = normalizeConversationIds(input);
-  if (conversationIds === null) {
-    return failed(empty, null, 'Tracked conversation IDs must be an array of strings.');
+  const sessionIds = normalizeSessionIds(input);
+  if (sessionIds === null) {
+    return failed(empty, null, 'Tracked session IDs must be an array of strings.');
   }
-  if (conversationIds.length === 0) return ready(empty);
+  if (sessionIds.length === 0) return ready(empty);
 
   try {
     const target = indexPath(getUserDataPath(), projectRoot);
     if (!fs.existsSync(target)) {
-      return unavailable(empty, 'Conversation history must be indexed before tracking it.');
+      return unavailable(empty, 'Session history must be indexed before tracking it.');
     }
     const index = readIndex(target, projectKey(projectRoot));
     const sessionFiles = [];
-    const missingConversationIds = [];
-    const staleConversationIds = [];
-    const ambiguousConversationIds = [];
-    for (const conversationId of conversationIds) {
+    const missingSessionIds = [];
+    const staleSessionIds = [];
+    const ambiguousSessionIds = [];
+    for (const sessionId of sessionIds) {
       const matches = Object.entries(index.files).filter(([, entry]) =>
-        entry?.summary?.id === conversationId);
+        entry?.summary?.id === sessionId);
       if (matches.length === 0) {
-        missingConversationIds.push(conversationId);
+        missingSessionIds.push(sessionId);
         continue;
       }
       if (matches.length > 1) {
-        ambiguousConversationIds.push(conversationId);
+        ambiguousSessionIds.push(sessionId);
         continue;
       }
       const [[sessionFile, entry]] = matches;
       if (!isCurrentIndexEntry(
         sessionFile,
         entry,
-        conversationId,
+        sessionId,
         readSessionMetadata,
       )) {
-        staleConversationIds.push(conversationId);
+        staleSessionIds.push(sessionId);
         continue;
       }
       sessionFiles.push(path.resolve(sessionFile));
@@ -257,34 +258,34 @@ function resolveTrackedSessionFilesResult({
 
     const data = resolvedSessionFiles(
       projectRoot,
-      conversationIds,
+      sessionIds,
       sessionFiles,
-      missingConversationIds,
-      staleConversationIds,
-      ambiguousConversationIds,
+      missingSessionIds,
+      staleSessionIds,
+      ambiguousSessionIds,
     );
     if (
-      missingConversationIds.length ||
-      staleConversationIds.length ||
-      ambiguousConversationIds.length
+      missingSessionIds.length ||
+      staleSessionIds.length ||
+      ambiguousSessionIds.length
     ) {
       return failed(
         data,
         null,
-        'Some tracked conversations cannot be resolved exactly from the history index.',
+        'Some tracked sessions cannot be resolved exactly from the history index.',
       );
     }
     return ready(data);
   } catch (error) {
-    return failed(empty, error, 'Unable to resolve tracked Codex conversations.');
+    return failed(empty, error, 'Unable to resolve tracked Codex sessions.');
   }
 }
 
-function refreshConversationIndex({
+function refreshSessionIndex({
   projectRoot,
   indexFile,
   findSessionFiles,
-  readProjectConversation,
+  readProjectSession,
   detailCache,
 }) {
   const rootKey = projectKey(projectRoot);
@@ -310,14 +311,14 @@ function refreshConversationIndex({
       continue;
     }
 
-    const conversation = readProjectConversation({ projectRoot, sessionFile });
+    const session = readProjectSession({ projectRoot, sessionFile });
     nextFiles[sessionFile] = {
       ...fingerprint,
-      summary: conversation ? toConversationSummary(conversation) : null,
+      summary: session ? toSessionSummary(session) : null,
     };
     const cacheKey = detailCacheKey(projectRoot, sessionFile);
-    if (conversation) {
-      detailCache.set(cacheKey, { ...fingerprint, conversation });
+    if (session) {
+      detailCache.set(cacheKey, { ...fingerprint, session });
     } else {
       detailCache.delete(cacheKey);
     }
@@ -348,7 +349,7 @@ function readIndex(file, rootKey) {
     typeof parsed.files !== 'object' ||
     Array.isArray(parsed.files)
   ) {
-    throw new Error('Conversation history index is invalid.');
+    throw new Error('Session history index is invalid.');
   }
   return parsed;
 }
@@ -383,7 +384,7 @@ function isReusableIndexEntry(entry, fingerprint) {
 function isCurrentIndexEntry(
   sessionFile,
   entry,
-  conversationId,
+  sessionId,
   readSessionMetadata,
 ) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
@@ -395,38 +396,38 @@ function isCurrentIndexEntry(
     return false;
   }
   const metadata = readSessionMetadata(sessionFile);
-  return metadata?.sessionId === conversationId;
+  return metadata?.sessionId === sessionId;
 }
 
-function readIndexedConversation({
+function readIndexedSession({
   projectRoot,
-  conversationId,
+  sessionId,
   sessionFile,
-  readProjectConversation,
+  readProjectSession,
   detailCache,
 }) {
   const stat = fs.statSync(sessionFile);
-  if (!stat.isFile()) throw new Error('Indexed Codex conversation source is not a file.');
+  if (!stat.isFile()) throw new Error('Indexed Codex session source is not a file.');
   const fingerprint = { size: stat.size, mtimeMs: stat.mtimeMs };
   const cacheKey = detailCacheKey(projectRoot, sessionFile);
   const cached = detailCache.get(cacheKey);
   if (
     cached?.size === fingerprint.size &&
     cached?.mtimeMs === fingerprint.mtimeMs &&
-    cached.conversation?.id === conversationId
+    cached.session?.id === sessionId
   ) {
-    return cached.conversation;
+    return cached.session;
   }
 
-  const conversation = readProjectConversation({ projectRoot, sessionFile });
-  if (!conversation) {
-    throw new Error('The indexed conversation no longer belongs to this project.');
+  const session = readProjectSession({ projectRoot, sessionFile });
+  if (!session) {
+    throw new Error('The indexed session no longer belongs to this project.');
   }
-  if (conversation.id !== conversationId) {
-    throw new Error('The indexed rollout no longer matches the selected conversation.');
+  if (session.id !== sessionId) {
+    throw new Error('The indexed rollout no longer matches the selected session.');
   }
-  detailCache.set(cacheKey, { ...fingerprint, conversation });
-  return conversation;
+  detailCache.set(cacheKey, { ...fingerprint, session });
+  return session;
 }
 
 function detailCacheKey(projectRoot, sessionFile) {
@@ -437,7 +438,7 @@ function summariesFromIndex(index) {
   return Object.values(index.files)
     .map(entry => entry?.summary)
     .filter(Boolean)
-    .sort(compareConversations);
+    .sort(compareSessions);
 }
 
 function sameKeys(left, right) {
@@ -447,44 +448,44 @@ function sameKeys(left, right) {
     leftKeys.every((key, index) => key === rightKeys[index]);
 }
 
-function compareConversations(left, right) {
+function compareSessions(left, right) {
   return (
     String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? '')) ||
     String(left.id ?? '').localeCompare(String(right.id ?? ''))
   );
 }
 
-function toConversationSummary(conversation) {
+function toSessionSummary(session) {
   return {
-    id: conversation.id,
-    provider: conversation.provider,
-    title: conversation.title,
-    startedAt: conversation.startedAt,
-    updatedAt: conversation.updatedAt,
-    turnCount: conversation.turns.length,
-    observableTurnCount: conversation.turns.filter(turn => turn.hasObservableActivity).length,
+    id: session.id,
+    provider: session.provider,
+    title: session.title,
+    startedAt: session.startedAt,
+    updatedAt: session.updatedAt,
+    turnCount: session.turns.length,
+    observableTurnCount: session.turns.filter(turn => turn.hasObservableActivity).length,
   };
 }
 
-function toConversationDetails(conversation) {
+function toSessionDetails(session) {
   return {
-    ...toConversationSummary(conversation),
-    turns: conversation.turns,
+    ...toSessionSummary(session),
+    turns: session.turns,
   };
 }
 
-function trackedSelection(projectRoot, conversationIds) {
+function trackedSelection(projectRoot, sessionIds) {
   return {
     projectRoot: projectRoot ? path.resolve(projectRoot) : null,
-    conversationIds: [...new Set(conversationIds)],
+    sessionIds: [...new Set(sessionIds)],
   };
 }
 
-function normalizeConversationIds(input) {
+function normalizeSessionIds(input) {
   const values = Array.isArray(input)
     ? input
-    : input && typeof input === 'object' && Array.isArray(input.conversationIds)
-      ? input.conversationIds
+    : input && typeof input === 'object' && Array.isArray(input.sessionIds)
+      ? input.sessionIds
       : null;
   if (!values || values.some(value => typeof value !== 'string')) return null;
   return [...new Set(values.map(value => value.trim()).filter(Boolean))];
@@ -509,7 +510,7 @@ function readConfig(file) {
   if (!fs.existsSync(file)) return emptyConfig();
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Conversation tracking configuration is invalid.');
+    throw new Error('Session tracking configuration is invalid.');
   }
   return {
     version: CONFIG_VERSION,

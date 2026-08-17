@@ -214,13 +214,50 @@ test('observable turn index excludes read-only turns and keeps search turns', ()
   assert.deepEqual(turns[0].activities, ['SEARCH']);
 });
 
+test('observable turn index keeps normalized event nodes from Codex timeline history', () => {
+  const turns = buildObservableTurns(workbenchState([
+    turn('event-turn', [
+      { type: 'event', id: 'command-1', eventKind: 'command', method: 'SHELL', name: 'exec_command' },
+      { type: 'event', id: 'test-1', eventKind: 'test_result', method: 'TEST', name: 'pnpm test' },
+      { type: 'event', id: 'change-1', eventKind: 'file_change', method: 'EDIT', name: 'apply_patch' },
+    ]),
+  ]));
+
+  assert.equal(turns.length, 1);
+  assert.deepEqual(turns[0].activities, ['PROCESS', 'WRITE', 'DIFF', 'TEST']);
+  assert.equal(turns[0].records.length, 3);
+});
+
+test('consecutive reasoning, user input and assistant events become content records', () => {
+  const turns = buildObservableTurns(workbenchState([
+    turn('content-turn', [
+      { type: 'event', id: 'reasoning-1', method: 'REASONING', eventKind: 'reasoning', name: 'Reasoning summary', content: 'Inspect the project.' },
+      { type: 'event', id: 'reasoning-2', method: 'REASONING', eventKind: 'reasoning', name: 'Reasoning summary', content: 'Then run the relevant test.' },
+      { type: 'event', id: 'user-input-1', method: 'USER INPUT', eventKind: 'user_input', name: 'User message', content: 'Implement the feature.' },
+      { type: 'event', id: 'user-input-2', method: 'USER INPUT', eventKind: 'user_input', name: 'User message', content: 'Keep the change focused.' },
+      { type: 'event', id: 'assistant-1', method: 'ASSISTANT', eventKind: 'assistant_message', name: 'Agent message', content: 'I will inspect the current implementation.' },
+      { type: 'event', id: 'command-1', eventKind: 'command', method: 'SHELL', name: 'exec_command' },
+    ]),
+  ]));
+
+  assert.equal(turns.length, 1);
+  assert.deepEqual(turns[0].records.map(record => record.method), [
+    'REASONING', 'USER INPUT', 'USER INPUT', 'ASSISTANT', 'SHELL',
+  ]);
+  assert.equal(turns[0].records[0].target, '');
+  assert.equal(turns[0].records[0].content, 'Inspect the project.\n\nThen run the relevant test.');
+  assert.equal(turns[0].records[0].rawRecord.mergedRecords.length, 2);
+  assert.equal(turns[0].records[1].content, 'Implement the feature.');
+  assert.equal(turns[0].records[2].content, 'Keep the change focused.');
+});
+
 test('start from now excludes existing commands and includes only later records', () => {
   const initial = buildObservableTurns(workbenchState([
     turn('codex-old', [{ type: 'agent_tool', id: 'old-shell', name: 'Shell' }], 'codex', 1),
-    turn('cursor-latest', [
-      { type: 'agent_tool', id: 'cursor-search', name: 'SemanticSearch' },
-      { type: 'agent_tool', id: 'cursor-write', name: 'Write' },
-    ], 'cursor', 2),
+    turn('codex-latest', [
+      { type: 'agent_tool', id: 'codex-search', name: 'SemanticSearch' },
+      { type: 'agent_tool', id: 'codex-write', name: 'Write' },
+    ], 'codex', 2),
   ]));
   const range = createLiveRange(initial);
 
@@ -228,10 +265,10 @@ test('start from now excludes existing commands and includes only later records'
 
   const updated = buildObservableTurns(workbenchState([
     turn('codex-old', [{ type: 'agent_tool', id: 'old-shell', name: 'Shell' }], 'codex', 1),
-    turn('cursor-latest', [
-      { type: 'agent_tool', id: 'cursor-search', name: 'SemanticSearch' },
-      { type: 'agent_tool', id: 'cursor-write', name: 'Write' },
-    ], 'cursor', 2),
+    turn('codex-latest', [
+      { type: 'agent_tool', id: 'codex-search', name: 'SemanticSearch' },
+      { type: 'agent_tool', id: 'codex-write', name: 'Write' },
+    ], 'codex', 2),
     turn('codex-new', [
       { type: 'agent_tool', id: 'new-search', name: 'WebSearch' },
       { type: 'agent_tool', id: 'new-edit', name: 'apply_patch' },
@@ -258,8 +295,8 @@ test('history sections keep selected turns ordered and append each recorded diff
   ]);
   const turns = buildObservableTurns(state);
   const selected = [
-    { id: 'second', conversationId: 'codex-conversation', userInput: 'Second', startedAt: '2026-08-04T10:02:00.000Z', status: 'completed' },
-    { id: 'first', conversationId: 'codex-conversation', userInput: 'First', startedAt: '2026-08-04T10:01:00.000Z', status: 'completed' },
+    { id: 'second', sessionId: 'codex-session', userInput: 'Second', startedAt: '2026-08-04T10:02:00.000Z', status: 'completed' },
+    { id: 'first', sessionId: 'codex-session', userInput: 'First', startedAt: '2026-08-04T10:01:00.000Z', status: 'completed' },
   ];
 
   const sections = buildHistoryTurnSections(turns, selected, []);
@@ -306,7 +343,7 @@ test('recorded changes appear only in history and preserve each successful patch
 
 test('observed diffs stay independent while remaining visible in their observation window', () => {
   const state = workbenchState([
-    turn('cursor-turn', [{ type: 'agent_tool', id: 'cursor-edit', name: 'Write', method: 'EDIT', display: true }], 'cursor', 1),
+    turn('codex-turn', [{ type: 'agent_tool', id: 'codex-edit', name: 'Write', method: 'EDIT', display: true }], 'codex', 1),
     {
       type: 'code_change',
       id: 'observed-change',
@@ -317,8 +354,8 @@ test('observed diffs stay independent while remaining visible in their observati
       source: 'git-snapshot',
       attribution: 'unassigned',
       observationWindow: {
-        conversationId: 'cursor-conversation',
-        generationId: 'cursor-turn',
+        sessionId: 'codex-session',
+        generationId: 'codex-turn',
       },
       startedAt: '2026-08-04T10:01:00.000Z',
       endedAt: '2026-08-04T10:01:10.000Z',
@@ -352,7 +389,7 @@ test('history selection never pulls unrelated standalone evidence from the time 
       source: 'git-snapshot',
       attribution: 'unassigned',
       observationWindow: {
-        conversationId: 'codex-conversation',
+        sessionId: 'codex-session',
         generationId: 'unselected',
       },
       startedAt: '2026-08-04T10:02:10.000Z',
@@ -369,24 +406,24 @@ test('history selection never pulls unrelated standalone evidence from the time 
   const records = recordsForView(turns, selectedIds, buildStandaloneRecords(state));
 
   assert.deepEqual(records.map(record => record.id), [
-    'codex:codex-conversation:search-a',
-    'codex:codex-conversation:search-b',
+    'codex:codex-session:search-a',
+    'codex:codex-session:search-b',
   ]);
 });
 
-test('standalone evidence requires both conversation and turn identity', () => {
+test('standalone evidence requires both session and turn identity', () => {
   const state = workbenchState([
     turn('shared-turn', [{ type: 'agent_tool', id: 'selected-search', name: 'WebSearch' }], 'codex', 1),
     {
       type: 'code_change',
-      id: 'other-conversation-change',
+      id: 'other-session-change',
       method: 'DIFF',
       display: true,
       changed: true,
       source: 'git-snapshot',
       attribution: 'unassigned',
       observationWindow: {
-        conversationId: 'cursor-conversation',
+        sessionId: 'other-session',
         generationId: 'shared-turn',
       },
       startedAt: '2026-08-04T10:01:10.000Z',
@@ -400,7 +437,7 @@ test('standalone evidence requires both conversation and turn identity', () => {
   const records = recordsForView(turns, [turns[0].id], buildStandaloneRecords(state));
 
   assert.deepEqual(records.map(record => record.id), [
-    'codex:codex-conversation:selected-search',
+    'codex:codex-session:selected-search',
   ]);
 });
 
@@ -410,7 +447,7 @@ function turn(generationId, children, provider = 'codex', minute = 0) {
     type: 'turn',
     id: `turn:${generationId}`,
     generationId,
-    conversationId: `${provider}-conversation`,
+    sessionId: `${provider}-session`,
     provider,
     startedAt,
     endedAt: startedAt,

@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { findCodexSessions } from './find-sessions.js';
-import { parseCodexRollout } from './parse-rollout.js';
-import type { AgentToolStep, CodexRolloutLine } from './types.js';
+import { parseCodexRollout, parseCodexTimelineEvents } from './parse-rollout.js';
+import type { AgentToolStep, CodexRolloutLine, CodexTimelineEvent } from './types.js';
 
 const METADATA_READ_LIMIT = 64 * 1024;
 
@@ -19,8 +19,8 @@ export type ReadCodexProjectStepsOptions = {
   sessionsDir?: string;
   /** Exact rollout paths already resolved by the local history index. */
   sessionFiles?: readonly string[];
-  /** When provided, only these user-selected Codex conversations are parsed. */
-  conversationIds?: readonly string[];
+  /** When provided, only these user-selected Codex sessions are parsed. */
+  sessionIds?: readonly string[];
 };
 
 /** Build the current tracked project view directly from the selected rollout files. */
@@ -31,6 +31,17 @@ export function readCodexProjectSteps(options: ReadCodexProjectStepsOptions): Ag
       .flatMap(sessionFile => parseCodexRollout(sessionFile))
       .filter(step => step.cwd && isCodexSessionForProject(step.cwd, projectRoot)),
   ).sort(compareSteps);
+}
+
+/** Build the complete observable event stream for the selected project sessions. */
+export function readCodexProjectTimelineEvents(
+  options: ReadCodexProjectStepsOptions,
+): CodexTimelineEvent[] {
+  return deduplicateTimelineEvents(
+    selectedSessionFiles(options)
+      .flatMap(sessionFile => parseCodexTimelineEvents(sessionFile, options.projectRoot))
+      .filter(event => event.cwd && isCodexSessionForProject(event.cwd, options.projectRoot)),
+  ).sort(compareTimelineEvents);
 }
 
 export function readCodexSessionMetadata(
@@ -98,10 +109,10 @@ function selectedSessionFiles(
     return [...new Set(options.sessionFiles.map(sessionFile => path.resolve(sessionFile)))];
   }
   const sessions = findCodexSessions(options.sessionsDir);
-  if (options.conversationIds === undefined) {
+  if (options.sessionIds === undefined) {
     return sessions;
   }
-  const selected = new Set(options.conversationIds);
+  const selected = new Set(options.sessionIds);
   if (selected.size === 0) {
     return [];
   }
@@ -130,13 +141,26 @@ function cachedSessionMetadata(
 function deduplicateSteps(steps: AgentToolStep[]): AgentToolStep[] {
   const byId = new Map<string, AgentToolStep>();
   for (const step of steps) {
-    byId.set(`${step.conversationId || step.sessionFile}:${step.id}`, step);
+    byId.set(`${step.sessionId || step.sessionFile}:${step.id}`, step);
+  }
+  return [...byId.values()];
+}
+
+function deduplicateTimelineEvents(events: CodexTimelineEvent[]): CodexTimelineEvent[] {
+  const byId = new Map<string, CodexTimelineEvent>();
+  for (const event of events) {
+    byId.set(`${event.sessionId || event.sessionFile}:${event.id}`, event);
   }
   return [...byId.values()];
 }
 
 function compareSteps(left: AgentToolStep, right: AgentToolStep): number {
   return (left.startedAt || '').localeCompare(right.startedAt || '');
+}
+
+function compareTimelineEvents(left: CodexTimelineEvent, right: CodexTimelineEvent): number {
+  return (left.startedAt || '').localeCompare(right.startedAt || '') ||
+    (left.sourceLine || 0) - (right.sourceLine || 0);
 }
 
 function comparablePath(value: string): string {

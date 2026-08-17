@@ -32,7 +32,7 @@ Use one or more evidence notes when an entry depends on multiple events. Keep ex
 
 ## Content requirements
 
-- State the selected conversation and turn identifiers in Task scope.
+- State the selected session and turn identifiers in Task scope.
 - Keep Process overview short and factual.
 - Present the supplied per-turn metrics in a table. Label total tokens as input plus output. Treat cached input as part of input and reasoning output as part of output. Show unavailable values as `—`.
 - Use chronological numbered entries in Behavior timeline. Convert timestamps to the supplied presentation timezone, label the timezone, and put supporting evidence notes directly below each entry.

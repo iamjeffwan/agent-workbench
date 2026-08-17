@@ -64,7 +64,7 @@ test('buildTimeline keeps Codex turn identity and shell classification', () => {
         id: 'c1',
         name: 'shell_command',
         provider: 'codex',
-        conversationId: 'conversation-one',
+        sessionId: 'session-one',
         generationId: 'turn-one',
         launchesProcess: true,
       },
@@ -73,40 +73,9 @@ test('buildTimeline keeps Codex turn identity and shell classification', () => {
   );
 
   assert.equal(turns[0].provider, 'codex');
-  assert.equal(turns[0].conversationId, 'conversation-one');
+  assert.equal(turns[0].sessionId, 'session-one');
   assert.equal(turns[0].generationId, 'turn-one');
   assert.equal(turns[0].children[0].name, 'shell_command');
-});
-
-test('buildTimeline keeps observed code changes as independent unassigned roots', () => {
-  const roots = buildTimeline(
-    [{ id: 'write-one', name: 'Write', generationId: 'turn-one' }],
-    [],
-    {},
-    [
-      {
-        kind: 'code_change',
-        id: 'change-one',
-        generationId: 'turn-one',
-        changed: true,
-        beforeHash: 'before',
-        afterHash: 'after',
-        afterPatch: 'diff contents',
-        source: 'git-snapshot',
-        attribution: 'unassigned',
-      },
-    ],
-  );
-
-  const turn = roots.find(root => root.type === 'turn');
-  const change = roots.find(root => root.type === 'code_change');
-  assert.equal(turn.children.some(child => child.type === 'code_change'), false);
-  assert.equal(change.name, 'Code state changed');
-  assert.equal(change.afterPatch, 'diff contents');
-  assert.equal(change.parentId, null);
-  assert.equal(change.attribution, 'unassigned');
-  assert.equal(change.source, 'git-snapshot');
-  assert.equal(change.display, false);
 });
 
 test('buildTimeline classifies tests and retains unknown tools without rendering them', () => {
@@ -131,14 +100,14 @@ test('buildTimeline classifies tests and retains unknown tools without rendering
   assert.equal(turn.children[1].display, false);
 });
 
-test('buildTimeline never merges equal turn ids from different agent sources', () => {
+test('buildTimeline never merges equal turn ids from different Codex sessions', () => {
   const roots = buildTimeline([
-    { id: 'codex-call', name: 'Grep', provider: 'codex', conversationId: 'codex-thread', generationId: 'same-turn' },
-    { id: 'cursor-call', name: 'Grep', provider: 'cursor', conversationId: 'cursor-thread', generationId: 'same-turn' },
+    { id: 'codex-call', name: 'Grep', provider: 'codex', sessionId: 'codex-thread', generationId: 'same-turn' },
+    { id: 'codex-call-two', name: 'Grep', provider: 'codex', sessionId: 'other-codex-thread', generationId: 'same-turn' },
   ], []);
 
   const turns = roots.filter(root => root.type === 'turn');
   assert.equal(turns.length, 2);
-  assert.deepEqual(turns.map(turn => turn.provider), ['codex', 'cursor']);
+  assert.deepEqual(turns.map(turn => turn.provider), ['codex', 'codex']);
   assert.ok(turns.every(turn => turn.generationId === 'same-turn'));
 });

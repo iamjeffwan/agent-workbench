@@ -11,11 +11,7 @@ const repoRoot = path.resolve(scriptDir, '..');
 const packages = [
   { name: 'security', root: 'packages/agent-workbench-security', build: false },
   { name: 'timeline', root: 'packages/timeline', build: true },
-  { name: 'project-observe', root: 'packages/project-observe', build: true },
   { name: 'codex-adapter', root: 'packages/codex-adapter', build: true },
-  // program-tracer before cursor-adapter: Shell inject tests need preload.js
-  { name: 'program-tracer', root: 'packages/program-tracer', build: true },
-  { name: 'cursor-adapter', root: 'packages/cursor-adapter', build: true },
   { name: 'desktop', root: 'apps/desktop', build: true, vite: true },
 ];
 
@@ -37,7 +33,13 @@ for (const item of packages) {
     run(process.execPath, [vite, 'build'], packageRoot);
   }
 
-  run(process.execPath, ['--test', 'test/*.test.mjs'], packageRoot);
+  run(
+    process.execPath,
+    item.name === 'desktop'
+      ? ['--experimental-strip-types', '--test', 'test/*.test.mjs']
+      : ['--test', 'test/*.test.mjs'],
+    packageRoot,
+  );
 }
 
 console.log('\n[agent-workbench] all tests passed');

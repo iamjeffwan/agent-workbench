@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -51,6 +51,13 @@ const forwardedArguments = process.argv.slice(2).filter(
   (argument) => argument !== '--dev' && argument !== '--ui-preview',
 );
 
+let activeVite = null;
+let activeElectron = null;
+let shuttingDown = false;
+
+process.once('SIGINT', () => shutdown(0));
+process.once('SIGTERM', () => shutdown(0));
+
 if (development) {
   await runDevelopment();
 } else {
@@ -78,34 +85,26 @@ async function runDevelopment() {
     },
   );
 
-  let stopping = false;
-  const stop = () => {
-    if (stopping) return;
-    stopping = true;
-    if (!vite.killed) vite.kill();
-  };
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
+  activeVite = vite;
 
   vite.once('exit', (code) => {
-    if (!stopping && code !== 0) process.exit(code ?? 1);
+    if (activeVite === vite) activeVite = null;
+    if (!shuttingDown && code !== 0) shutdown(code ?? 1);
   });
 
   try {
     await waitForRenderer('http://127.0.0.1:5173');
   } catch (error) {
-    stop();
     console.error(`[desktop] ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    shutdown(1);
   }
 
-  const electron = runElectron({
+  runElectron({
     ...process.env,
     AGENT_WORKBENCH_RENDERER_URL: uiPreview
       ? 'http://127.0.0.1:5173/?mode=workbench-preview'
       : 'http://127.0.0.1:5173',
   });
-  electron.once('exit', stop);
 }
 
 function runElectron(environment) {
@@ -120,14 +119,36 @@ function runElectron(environment) {
     },
   );
 
+  activeElectron = child;
+
   child.on('exit', (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code ?? 1);
+    if (activeElectron === child) activeElectron = null;
+    if (shuttingDown) return;
+    shuttingDown = true;
+    stopProcessTree(activeVite);
+    process.exit(signal ? 1 : code ?? 1);
   });
   return child;
+}
+
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopProcessTree(activeElectron);
+  stopProcessTree(activeVite);
+  process.exit(code);
+}
+
+function stopProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return;
+  }
+  child.kill('SIGTERM');
 }
 
 async function waitForRenderer(url) {

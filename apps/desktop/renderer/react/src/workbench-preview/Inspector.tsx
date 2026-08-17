@@ -119,6 +119,18 @@ const ResultBox = styled.pre<{ $error?: boolean }>`
   white-space: pre-wrap;
 `;
 
+const ContentBox = styled.pre`
+  margin: 0;
+  padding: 14px 16px;
+  border-left: 3px solid #6284fa;
+  background: ${p => p.theme.mainLowlightBackground};
+  color: ${p => p.theme.mainColor};
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+`;
+
 function CollapsibleCard({ title, accent, header, children, defaultCollapsed = false }: {
   title: string;
   accent: string;
@@ -191,7 +203,7 @@ function OperationInspector({
     <HeaderIcon><AgentBrandIcon provider={record.provider} size={21} /></HeaderIcon>
     {embedded ? <HeaderIcon $color="#d57a08"><GitDiff weight="bold" /></HeaderIcon> : null}
     <Pill>{record.provider}</Pill>
-    <Pill $color={record.color}>{formatMethodLabel(record.method)} {record.target}</Pill>
+    <Pill $color={record.color}>{formatMethodLabel(record.method)}{record.target ? ` ${record.target}` : ''}</Pill>
   </>;
 
   if (embedded && record.kind === 'operation') {
@@ -229,6 +241,20 @@ function OperationInspector({
     );
   }
 
+  if (isContentRecord(record)) {
+    return <Pane aria-label={`Selected ${formatMethodLabel(record.method)} details`}>
+      <CollapsibleCard title={formatMethodLabel(record.method)} accent={record.color} header={heading}>
+        <PropertyGrid>
+          <Label>Status:</Label><Mono>{formatStatusLabel(record.status)}</Mono>
+          <Label>Started:</Label><Mono>{record.startedAt}</Mono>
+        </PropertyGrid>
+      </CollapsibleCard>
+      <CollapsibleCard title="Content" accent="#6284fa" header={<Pill>TEXT</Pill>}>
+        <ContentBox>{record.content || 'No content was recorded.'}</ContentBox>
+      </CollapsibleCard>
+    </Pane>;
+  }
+
   return <Pane aria-label="Selected operation details">
     <CollapsibleCard title={record.kind === 'action' ? 'Action' : 'Operation'} accent={record.color} header={heading}>
       <PropertyGrid>
@@ -249,6 +275,10 @@ function OperationInspector({
       <JsonBody value={record.rawRecord} />
     </CollapsibleCard>
   </Pane>;
+}
+
+function isContentRecord(record: AgentOperation | AgentAction): boolean {
+  return ['REASONING', 'USER INPUT', 'ASSISTANT'].includes(record.method);
 }
 
 function CallInspector({ record }: { record: ProgramCall }) {

@@ -44,28 +44,28 @@ export function createTaskLibraryService({
 
     createTask(input) {
       const normalized = normalizeTaskInput(input);
-      if (!normalized) return failed(null, null, 'Project, conversation and turn IDs are required.');
+      if (!normalized) return failed(null, null, 'Project, session and turn IDs are required.');
       try {
         const resolution = resolveSessionFiles(
           normalized.projectRoot,
-          [normalized.conversationId],
+          [normalized.sessionId],
         );
         if (resolution.status !== 'ready' || resolution.data.sessionFiles.length !== 1) {
           return failed(
             null,
             null,
-            resolution.error ?? 'The selected conversation source cannot be resolved exactly.',
+            resolution.error ?? 'The selected session source cannot be resolved exactly.',
           );
         }
         const [sessionFile] = resolution.data.sessionFiles;
         const evidence = readTaskEvidence({
           projectRoot: normalized.projectRoot,
           sessionFile,
-          conversationId: normalized.conversationId,
+          sessionId: normalized.sessionId,
           turnIds: normalized.turnIds,
         });
         if (evidence.missingTurnIds.length > 0 || evidence.turns.length !== normalized.turnIds.length) {
-          return failed(null, null, 'Some selected turns cannot be resolved exactly from the source conversation.');
+          return failed(null, null, 'Some selected turns cannot be resolved exactly from the source session.');
         }
 
         const id = createId();
@@ -81,7 +81,7 @@ export function createTaskLibraryService({
           id,
           title,
           projectRoot: path.resolve(normalized.projectRoot),
-          conversationId: normalized.conversationId,
+          sessionId: normalized.sessionId,
           turnIds: normalized.turnIds,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -287,14 +287,14 @@ function titleFromInput(value) {
 function normalizeTaskInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const projectRoot = string(input.projectRoot);
-  const conversationId = string(input.conversationId);
+  const sessionId = string(input.sessionId);
   const turnIds = Array.isArray(input.turnIds)
     ? [...new Set(input.turnIds.map(string).filter(Boolean))]
     : [];
-  if (!projectRoot || !conversationId || turnIds.length === 0) return null;
+  if (!projectRoot || !sessionId || turnIds.length === 0) return null;
   return {
     projectRoot: path.resolve(projectRoot),
-    conversationId,
+    sessionId,
     turnIds,
     title: string(input.title),
   };
@@ -349,7 +349,7 @@ function toTaskSummary(task) {
     id: task.id,
     title: titleFromInput(task.title) ?? task.title,
     projectRoot: task.projectRoot,
-    conversationId: task.conversationId,
+    sessionId: task.sessionId,
     turnIds: task.turnIds,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

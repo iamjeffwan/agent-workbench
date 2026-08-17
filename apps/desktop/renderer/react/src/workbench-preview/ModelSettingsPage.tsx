@@ -585,7 +585,7 @@ function TaskEvidenceDetails({ evidence }: { evidence: Record<string, unknown> }
   const turns = Array.isArray(evidence.turns) ? evidence.turns.map(asRecord) : [];
   const view = asRecord(evidence.evidenceView);
   const summary = compactRecord({
-    conversation: evidence.conversationId,
+    session: evidence.sessionId,
     projectRoot: evidence.projectRoot,
     sourceSession: evidence.sessionFile,
     boundedEvents: view.boundedEventCount,
@@ -609,7 +609,7 @@ function TurnEvidence({ turn, index }: { turn: Record<string, unknown>; index: n
   const events = Array.isArray(turn.events) ? turn.events.map(asRecord) : [];
   const turnFields = compactRecord({
     turnId: turn.id,
-    conversationId: turn.conversationId,
+    sessionId: turn.sessionId,
     workingDirectory: turn.cwd,
     status: turn.status,
     startedAt: turn.startedAt,

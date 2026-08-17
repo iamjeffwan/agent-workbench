@@ -1,21 +1,27 @@
 import * as React from 'react';
 import type {
-  ConversationDetails,
-  ConversationHistoryResult,
-  ConversationProjectSummary,
-  ConversationSummary,
+  SessionDetails,
+  SessionHistoryResult,
+  SessionProjectSummary,
+  SessionSummary,
   CreateTaskInput,
   CreateProjectAssetDraftInput,
   ProjectAssetDocument,
   ProjectAssetDraft,
   ProjectAssetIndex,
   ProjectAssetResult,
+  PublishRepositoryInput,
+  RepositoryResult,
+  RepositoryStatus,
   SaveTaskScriptInput,
+  SyncResult,
+  SyncTaskManifest,
+  SyncTaskRecord,
   TaskRecord,
   TaskResult,
   TaskChangeEvent,
   TaskSummary,
-  TrackedConversationSelection,
+  TrackedSessionSelection,
   WriteProjectAssetDraftInput,
   WorkbenchState,
 } from './workbench-data';
@@ -28,16 +34,23 @@ export interface WorkbenchConnection {
   refresh(): Promise<WorkbenchState | null>;
   startLiveObservation(): Promise<WorkbenchState | null>;
   useHistoryObservation(): Promise<WorkbenchState | null>;
-  listConversationProjects(): Promise<ConversationHistoryResult<ConversationProjectSummary[]>>;
-  listConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
-  readConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
-  getTrackedSelection(projectRoot: string | null): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
-  setTrackedSelection(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  listSessionProjects(): Promise<SessionHistoryResult<SessionProjectSummary[]>>;
+  listSessions(projectRoot: string): Promise<SessionHistoryResult<SessionSummary[]>>;
+  readSession(projectRoot: string, sessionId: string): Promise<SessionHistoryResult<SessionDetails | null>>;
+  getTrackedSelection(projectRoot: string | null): Promise<SessionHistoryResult<TrackedSessionSelection>>;
+  setTrackedSelection(projectRoot: string, sessionIds: string[]): Promise<SessionHistoryResult<TrackedSessionSelection>>;
   listTasks(projectRoot?: string | null): Promise<TaskResult<TaskSummary[]>>;
   readTask(taskId: string): Promise<TaskResult<TaskRecord | null>>;
   createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
   discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
+  readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
+  addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
+  getRepositoryStatus(projectRoot?: string | null): Promise<RepositoryResult<RepositoryStatus | null>>;
+  pullRepository(projectRoot?: string | null): Promise<RepositoryResult<RepositoryStatus | null>>;
+  publishRepository(input: PublishRepositoryInput): Promise<RepositoryResult<RepositoryStatus | null>>;
+  createGithubRepository(input: { projectRoot: string; name: string; privateRepository?: boolean }): Promise<RepositoryResult<RepositoryStatus | null>>;
   taskUpdates: TaskSummary[];
   taskActivities: TaskChangeEvent[];
   listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
@@ -149,48 +162,48 @@ export function useWorkbenchState(): WorkbenchConnection {
     }
   }, [bridge, state]);
 
-  const listConversationProjects = React.useCallback(async () => {
-    if (!bridge) return unavailableHistory<ConversationProjectSummary[]>([]);
+  const listSessionProjects = React.useCallback(async () => {
+    if (!bridge) return unavailableHistory<SessionProjectSummary[]>([]);
     try {
-      return await bridge.listConversationProjects();
+      return await bridge.listSessionProjects();
     } catch (error) {
-      return failedHistory<ConversationProjectSummary[]>(error, []);
+      return failedHistory<SessionProjectSummary[]>(error, []);
     }
   }, [bridge]);
 
-  const listConversations = React.useCallback(async (projectRoot: string) => {
-    if (!bridge) return unavailableHistory<ConversationSummary[]>([]);
+  const listSessions = React.useCallback(async (projectRoot: string) => {
+    if (!bridge) return unavailableHistory<SessionSummary[]>([]);
     try {
-      return await bridge.listConversations(projectRoot);
+      return await bridge.listSessions(projectRoot);
     } catch (error) {
-      return failedHistory<ConversationSummary[]>(error, []);
+      return failedHistory<SessionSummary[]>(error, []);
     }
   }, [bridge]);
 
-  const readConversation = React.useCallback(async (projectRoot: string, conversationId: string) => {
-    if (!bridge) return unavailableHistory<ConversationDetails | null>(null);
+  const readSession = React.useCallback(async (projectRoot: string, sessionId: string) => {
+    if (!bridge) return unavailableHistory<SessionDetails | null>(null);
     try {
-      return await bridge.readConversation(projectRoot, conversationId);
+      return await bridge.readSession(projectRoot, sessionId);
     } catch (error) {
-      return failedHistory<ConversationDetails | null>(error, null);
+      return failedHistory<SessionDetails | null>(error, null);
     }
   }, [bridge]);
 
   const getTrackedSelection = React.useCallback(async (projectRoot: string | null) => {
-    if (!bridge) return unavailableHistory<TrackedConversationSelection>({ projectRoot: null, conversationIds: [] });
+    if (!bridge) return unavailableHistory<TrackedSessionSelection>({ projectRoot: null, sessionIds: [] });
     try {
       return await bridge.getTrackedSelection(projectRoot);
     } catch (error) {
-      return failedHistory<TrackedConversationSelection>(error, { projectRoot: null, conversationIds: [] });
+      return failedHistory<TrackedSessionSelection>(error, { projectRoot: null, sessionIds: [] });
     }
   }, [bridge]);
 
-  const setTrackedSelection = React.useCallback(async (projectRoot: string, conversationIds: string[]) => {
-    if (!bridge) return unavailableHistory<TrackedConversationSelection>({ projectRoot: null, conversationIds: [] });
+  const setTrackedSelection = React.useCallback(async (projectRoot: string, sessionIds: string[]) => {
+    if (!bridge) return unavailableHistory<TrackedSessionSelection>({ projectRoot: null, sessionIds: [] });
     try {
-      return await bridge.setTrackedSelection(projectRoot, conversationIds);
+      return await bridge.setTrackedSelection(projectRoot, sessionIds);
     } catch (error) {
-      return failedHistory<TrackedConversationSelection>(error, { projectRoot: null, conversationIds: [] });
+      return failedHistory<TrackedSessionSelection>(error, { projectRoot: null, sessionIds: [] });
     }
   }, [bridge]);
 
@@ -231,6 +244,48 @@ export function useWorkbenchState(): WorkbenchConnection {
     if (!bridge) return unavailableTask<TaskRecord | null>(null);
     try { return await bridge.saveTaskScript(taskId, input); }
     catch (error) { return failedTask<TaskRecord | null>(error, null); }
+  }, [bridge]);
+
+  const listSyncTasks = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableSync<SyncTaskManifest[]>([]);
+    try { return await bridge.listSyncTasks(projectRoot); }
+    catch (error) { return failedSync<SyncTaskManifest[]>(error, []); }
+  }, [bridge]);
+
+  const readSyncTask = React.useCallback(async (projectRoot: string, taskId: string) => {
+    if (!bridge) return unavailableSync<SyncTaskRecord | null>(null);
+    try { return await bridge.readSyncTask(projectRoot, taskId); }
+    catch (error) { return failedSync<SyncTaskRecord | null>(error, null); }
+  }, [bridge]);
+
+  const addTaskToSync = React.useCallback(async (taskId: string) => {
+    if (!bridge) return unavailableSync<SyncTaskManifest | null>(null);
+    try { return await bridge.addTaskToSync(taskId); }
+    catch (error) { return failedSync<SyncTaskManifest | null>(error, null); }
+  }, [bridge]);
+
+  const getRepositoryStatus = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableSync<RepositoryStatus | null>(null);
+    try { return await bridge.getRepositoryStatus(projectRoot); }
+    catch (error) { return failedSync<RepositoryStatus | null>(error, null); }
+  }, [bridge]);
+
+  const pullRepository = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableSync<RepositoryStatus | null>(null);
+    try { return await bridge.pullRepository(projectRoot); }
+    catch (error) { return failedSync<RepositoryStatus | null>(error, null); }
+  }, [bridge]);
+
+  const publishRepository = React.useCallback(async (input: PublishRepositoryInput) => {
+    if (!bridge) return unavailableSync<RepositoryStatus | null>(null);
+    try { return await bridge.publishRepository(input); }
+    catch (error) { return failedSync<RepositoryStatus | null>(error, null); }
+  }, [bridge]);
+
+  const createGithubRepository = React.useCallback(async (input: { projectRoot: string; name: string; privateRepository?: boolean }) => {
+    if (!bridge) return unavailableSync<RepositoryStatus | null>(null);
+    try { return await bridge.createGithubRepository(input); }
+    catch (error) { return failedSync<RepositoryStatus | null>(error, null); }
   }, [bridge]);
 
   const listProjectAssets = React.useCallback(async (projectRoot?: string | null) => {
@@ -283,9 +338,9 @@ export function useWorkbenchState(): WorkbenchConnection {
     refresh,
     startLiveObservation: () => selectObservationMode('live'),
     useHistoryObservation: () => selectObservationMode('history'),
-    listConversationProjects,
-    listConversations,
-    readConversation,
+    listSessionProjects,
+    listSessions,
+    readSession,
     getTrackedSelection,
     setTrackedSelection,
     listTasks,
@@ -293,6 +348,13 @@ export function useWorkbenchState(): WorkbenchConnection {
     createTask,
     discussTask,
     saveTaskScript,
+    listSyncTasks,
+    readSyncTask,
+    addTaskToSync,
+    getRepositoryStatus,
+    pullRepository,
+    publishRepository,
+    createGithubRepository,
     taskUpdates,
     taskActivities,
     listProjectAssets,
@@ -317,21 +379,21 @@ function failedAsset<T>(error: unknown, data: T): ProjectAssetResult<T> {
   return { status: 'error', source: 'workbench-assets', data, error: error instanceof Error ? error.message : 'Unable to use project assets.' };
 }
 
-function unavailableHistory<T>(data: T): ConversationHistoryResult<T> {
+function unavailableHistory<T>(data: T): SessionHistoryResult<T> {
   return {
     status: 'unavailable',
     source: 'codex-rollout',
     data,
-    error: 'Conversation history is unavailable in the static preview.',
+    error: 'Session history is unavailable in the static preview.',
   };
 }
 
-function failedHistory<T>(error: unknown, data: T): ConversationHistoryResult<T> {
+function failedHistory<T>(error: unknown, data: T): SessionHistoryResult<T> {
   return {
     status: 'error',
     source: 'codex-rollout',
     data,
-    error: error instanceof Error ? error.message : 'Unable to read conversation history.',
+    error: error instanceof Error ? error.message : 'Unable to read session history.',
   };
 }
 
@@ -353,10 +415,21 @@ function failedTask<T>(error: unknown, data: T): TaskResult<T> {
   };
 }
 
+function unavailableSync<T>(data: T): SyncResult<T> {
+  return { status: 'error', source: 'workbench-sync', data, error: 'Synchronization is unavailable in the static preview.' };
+}
+
+function failedSync<T>(error: unknown, data: T): SyncResult<T> {
+  return { status: 'error', source: 'workbench-sync', data, error: error instanceof Error ? error.message : 'Unable to use synchronization.' };
+}
+
 function emptyState(error: string | null): WorkbenchState {
   return {
     projectRoot: null,
     turns: [],
+    review: null,
+    reviewsByTurn: {},
+    validationResult: null,
     error,
     observation: null,
     adapters: {},

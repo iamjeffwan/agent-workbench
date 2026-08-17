@@ -6,6 +6,7 @@ import { ActivityList } from './ActivityList';
 import { AssetsPage } from './AssetsPage';
 import { HistoryModal } from './HistoryModal';
 import { Inspector } from './Inspector';
+import { SyncTaskInspector } from './SyncTaskInspector';
 import { SourcesPage } from './SourcesPage';
 import { previewRecords } from './fixtures';
 import { useWorkbenchState } from './use-workbench-state';
@@ -23,9 +24,9 @@ import {
 } from './turn-model';
 import type { PreviewRecord } from './types';
 import type {
-  ConversationDetails,
-  ConversationHistoryResult,
-  ConversationSummary,
+  SessionDetails,
+  SessionHistoryResult,
+  SessionSummary,
   CreateTaskInput,
   CreateProjectAssetDraftInput,
   HistoryTurnSummary,
@@ -34,10 +35,13 @@ import type {
   ProjectAssetIndex,
   ProjectAssetResult,
   SaveTaskScriptInput,
+  SyncResult,
+  SyncTaskManifest,
+  SyncTaskRecord,
   TaskRecord,
   TaskResult,
   TaskSummary,
-  TrackedConversationSelection,
+  TrackedSessionSelection,
   WriteProjectAssetDraftInput,
   WorkbenchState,
 } from './workbench-data';
@@ -67,6 +71,9 @@ const ListPane = styled.div`
 const emptyWorkbenchState: WorkbenchState = {
   projectRoot: null,
   turns: [],
+  review: null,
+  reviewsByTurn: {},
+  validationResult: null,
   error: null,
   observation: null,
   adapters: {},
@@ -103,15 +110,18 @@ export function PreviewApp({ page }: { page: SidebarPage }) {
     onOpenProject={connection.bridgeAvailable ? connection.openProject : undefined}
     onStartLiveObservation={connection.startLiveObservation}
     onUseHistoryObservation={connection.useHistoryObservation}
-    onListConversations={connection.listConversations}
-    onReadConversation={connection.readConversation}
+    onListSessions={connection.listSessions}
+    onReadSession={connection.readSession}
     onGetTrackedSelection={connection.getTrackedSelection}
     onSetTrackedSelection={connection.setTrackedSelection}
     onListTasks={connection.listTasks}
     onReadTask={connection.readTask}
     onCreateTask={connection.createTask}
+    onAddTaskToSync={connection.addTaskToSync}
     onDiscussTask={connection.discussTask}
-    onSaveTaskScript={connection.saveTaskScript}
+  onSaveTaskScript={connection.saveTaskScript}
+    onListSyncTasks={connection.listSyncTasks}
+    onReadSyncTask={connection.readSyncTask}
     taskUpdates={connection.taskUpdates}
     onListProjectAssets={connection.listProjectAssets}
     onReadProjectAsset={connection.readProjectAsset}
@@ -138,15 +148,18 @@ function PreviewWorkspace({
   onOpenProject,
   onStartLiveObservation,
   onUseHistoryObservation,
-  onListConversations,
-  onReadConversation,
+  onListSessions,
+  onReadSession,
   onGetTrackedSelection,
   onSetTrackedSelection,
   onListTasks,
   onReadTask,
   onCreateTask,
+  onAddTaskToSync,
   onDiscussTask,
   onSaveTaskScript,
+  onListSyncTasks,
+  onReadSyncTask,
   taskUpdates,
   onListProjectAssets,
   onReadProjectAsset,
@@ -170,15 +183,18 @@ function PreviewWorkspace({
   onOpenProject?: () => Promise<WorkbenchState | null>;
   onStartLiveObservation(): Promise<WorkbenchState | null>;
   onUseHistoryObservation(): Promise<WorkbenchState | null>;
-  onListConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
-  onReadConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
-  onGetTrackedSelection(projectRoot: string | null): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
-  onSetTrackedSelection(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  onListSessions(projectRoot: string): Promise<SessionHistoryResult<SessionSummary[]>>;
+  onReadSession(projectRoot: string, sessionId: string): Promise<SessionHistoryResult<SessionDetails | null>>;
+  onGetTrackedSelection(projectRoot: string | null): Promise<SessionHistoryResult<TrackedSessionSelection>>;
+  onSetTrackedSelection(projectRoot: string, sessionIds: string[]): Promise<SessionHistoryResult<TrackedSessionSelection>>;
   onListTasks(projectRoot?: string | null): Promise<TaskResult<TaskSummary[]>>;
   onReadTask(taskId: string): Promise<TaskResult<TaskRecord | null>>;
   onCreateTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
+  onAddTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
   onDiscussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   onSaveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  onListSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
+  onReadSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   taskUpdates: TaskSummary[];
   onListProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   onReadProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
@@ -197,7 +213,11 @@ function PreviewWorkspace({
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [modeChoiceOpen, setModeChoiceOpen] = React.useState(false);
   const [historySelection, setHistorySelection] = React.useState<HistoryTurnSummary[]>([]);
-  const [trackedConversationIds, setTrackedConversationIds] = React.useState<string[]>([]);
+  const [syncTask, setSyncTask] = React.useState<SyncTaskRecord | null>(null);
+  const [syncDocument, setSyncDocument] = React.useState<ProjectAssetDocument | null>(null);
+  const [syncDocumentLoading, setSyncDocumentLoading] = React.useState(false);
+  const [syncDocumentError, setSyncDocumentError] = React.useState<string | null>(null);
+  const [trackedSessionIds, setTrackedSessionIds] = React.useState<string[]>([]);
   const trackingProjectRoot = React.useRef<string | null>(null);
   const promptedProjectRoot = React.useRef<string | null>(null);
   const [state, dispatch] = React.useReducer(
@@ -250,7 +270,7 @@ function PreviewWorkspace({
     let active = true;
     void onGetTrackedSelection(projectRoot).then(result => {
       if (!active) return;
-      setTrackedConversationIds(result.data.conversationIds);
+      setTrackedSessionIds(result.data.sessionIds);
       if (result.status === 'ready' && projectRoot && promptedProjectRoot.current !== projectRoot) {
         promptedProjectRoot.current = projectRoot;
         setModeChoiceOpen(true);
@@ -346,21 +366,39 @@ function PreviewWorkspace({
     setHistoryOpen(true);
   };
 
-  const updateTrackedConversations = async (selectionProjectRoot: string, conversationIds: string[]) => {
-    const result = await onSetTrackedSelection(selectionProjectRoot, conversationIds);
+  const updateTrackedSessions = async (selectionProjectRoot: string, sessionIds: string[]) => {
+    const result = await onSetTrackedSelection(selectionProjectRoot, sessionIds);
     if (result.status !== 'ready') return result;
-    setTrackedConversationIds(result.data.conversationIds);
+    setTrackedSessionIds(result.data.sessionIds);
     if (
       historySelection[0] &&
-      !result.data.conversationIds.includes(historySelection[0].conversationId)
+      !result.data.sessionIds.includes(historySelection[0].sessionId)
     ) {
       selectHistory([]);
     }
     return result;
   };
 
+  const openSyncTask = async (task: SyncTaskRecord) => {
+    setHistoryOpen(false);
+    setSyncTask(task);
+    setSyncDocument(null);
+    setSyncDocumentError(null);
+    if (!projectRoot) return;
+    setSyncDocumentLoading(true);
+    const result = await onReadProjectAsset(projectRoot, task.projectFile);
+    setSyncDocumentLoading(false);
+    setSyncDocument(result.data);
+    setSyncDocumentError(result.status === 'ready' ? null : result.error);
+  };
+
   const inspector = (
-    <Inspector
+    syncTask ? <SyncTaskInspector
+      task={syncTask}
+      document={syncDocument}
+      loading={syncDocumentLoading}
+      error={syncDocumentError}
+    /> : <Inspector
       record={selected}
       diffLayout={state.diffLayout}
       focusedChangedPath={state.focusedChangedPath}
@@ -371,7 +409,10 @@ function PreviewWorkspace({
     />
   );
 
-  if (page === 'sources') return <SourcesPage state={workbenchState} />;
+  if (page === 'sources') return <SourcesPage
+    selectedTurns={historySelection}
+    reviewsByTurn={workbenchState.reviewsByTurn}
+  />;
   if (page === 'library') return <AssetsPage
     projectRoot={projectRoot}
     listAssets={onListProjectAssets}
@@ -409,6 +450,8 @@ function PreviewWorkspace({
             following={following}
             viewMode={range.kind === 'history' ? 'historical' : range.kind === 'paused' ? 'paused' : 'live'}
             onSelected={id => {
+              setSyncTask(null);
+              setSyncDocument(null);
               dispatch({
                 type: 'select-record',
                 id,
@@ -431,11 +474,15 @@ function PreviewWorkspace({
       {historyOpen ? <HistoryModal
         currentProjectRoot={projectRoot}
         selectedTurns={historySelection}
-        listConversations={onListConversations}
-        readConversation={onReadConversation}
+        listSessions={onListSessions}
+        readSession={onReadSession}
         getTrackedSelection={onGetTrackedSelection}
-        onTrackedConversations={updateTrackedConversations}
+        onTrackedSessions={updateTrackedSessions}
         createTask={onCreateTask}
+        addTaskToSync={onAddTaskToSync}
+        listSyncTasks={onListSyncTasks}
+        readSyncTask={onReadSyncTask}
+        onOpenSyncTask={openSyncTask}
         taskUpdates={taskUpdates}
         onSelected={selectHistory}
         onClose={() => setHistoryOpen(false)}
@@ -483,7 +530,7 @@ function ObservationModeDialog({ projectRoot, onLive, onHistory }: { projectRoot
       <p id="observation-mode-description">{projectRoot}</p>
       <div>
         <button type="button" autoFocus onClick={onLive}><strong>Live</strong><span>Start empty and show only commands recorded from now on.</span></button>
-        <button type="button" onClick={onHistory}><strong>History</strong><span>Select a conversation, then one or more turns.</span></button>
+        <button type="button" onClick={onHistory}><strong>History</strong><span>Select a session, then one or more turns.</span></button>
       </div>
     </ModeDialog>
   </ModeOverlay>;
@@ -493,21 +540,17 @@ function fixtureWorkbenchState(): WorkbenchState {
   return {
     ...emptyWorkbenchState,
     projectRoot: 'F:\\agent-workbench',
-    observation: { installed: true },
+    observation: null,
     adapters: {
       codex: { status: 'ready', stepCount: 14, sessionCount: 2, lastSyncAt: new Date().toISOString() },
-      cursor: { status: 'ready', stepCount: 8, lastEventAt: new Date(Date.now() - 45_000).toISOString() },
     },
     sources: {
       codex: { sourceRecords: 14, assignedToTurn: 14, assignedToProject: 14, normalized: 14, rendered: 9, hidden: 5, unknown: 0, invalid: 0 },
-      cursor: { sourceRecords: 8, assignedToTurn: 8, assignedToProject: 8, normalized: 8, rendered: 6, hidden: 2, unknown: 0, invalid: 0 },
     },
-    files: {
-      agentSteps: 'F:\\agent-workbench\\.agent-workbench\\agent-steps.jsonl',
-    },
+    files: {},
     fileBus: {
       status: 'watching',
-      directory: 'F:\\agent-workbench\\.agent-workbench',
+      directory: 'F:\\agent-workbench',
       lastRefreshAt: new Date().toISOString(),
       error: null,
     },

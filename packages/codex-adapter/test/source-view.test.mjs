@@ -4,13 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { parseCodexRollout, readCodexProjectSteps } from '../dist/index.js';
+import {
+  parseCodexRollout,
+  readCodexProjectSteps,
+  readCodexProjectTimelineEvents,
+} from '../dist/index.js';
 
 test('uses the original patch result and does not write a derived Codex ledger', () => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-source-view-'));
   const sessionFile = path.join(projectRoot, 'rollout-source.jsonl');
   const rows = [
-    event('session_meta', { session_id: 'conversation-one', cwd: projectRoot }),
+    event('session_meta', { session_id: 'session-one', cwd: projectRoot }),
     event('turn_context', { turn_id: 'turn-one', cwd: projectRoot }),
     event('response_item', {
       type: 'custom_tool_call',
@@ -41,6 +45,11 @@ test('uses the original patch result and does not write a derived Codex ledger',
   assert.match(steps[0].appliedChanges[path.join(projectRoot, 'src', 'app.ts')].unified_diff, /\+final/);
 
   assert.equal(readCodexProjectSteps({ projectRoot, sessionFiles: [sessionFile] }).length, 1);
+  assert.deepEqual(
+    readCodexProjectTimelineEvents({ projectRoot, sessionFiles: [sessionFile] })
+      .map(event => event.eventKind),
+    ['context_ref', 'file_change'],
+  );
   assert.equal(fs.existsSync(path.join(projectRoot, '.agent-workbench', 'codex-agent-steps.jsonl')), false);
 });
 

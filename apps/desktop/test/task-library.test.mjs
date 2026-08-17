@@ -44,21 +44,21 @@ test('creates immediately, reports generation state and persists model output', 
     createId: () => 'task-one',
     generateDocument: input => generator.generate(input),
     onChange: task => updates.push(task),
-    resolveSessionFiles: (_projectRoot, conversationIds) => ({
+    resolveSessionFiles: (_projectRoot, sessionIds) => ({
       status: 'ready',
       source: 'codex-rollout',
-      data: { sessionFiles: [sessionFile], conversationIds },
+      data: { sessionFiles: [sessionFile], sessionIds },
       error: null,
     }),
     readTaskEvidence: () => ({
-      conversationId: 'conversation-one',
+      sessionId: 'session-one',
       projectRoot,
       sessionFile,
       requestedTurnIds: ['turn-one'],
       missingTurnIds: [],
       turns: [{
         id: 'turn-one',
-        conversationId: 'conversation-one',
+        sessionId: 'session-one',
         cwd: projectRoot,
         userInput: 'Implement the history task',
         startedAt: '2026-08-11T04:00:00.000Z',
@@ -96,7 +96,7 @@ test('creates immediately, reports generation state and persists model output', 
   const service = createService();
   const created = service.createTask({
     projectRoot,
-    conversationId: 'conversation-one',
+    sessionId: 'session-one',
     turnIds: ['turn-one'],
   });
 
