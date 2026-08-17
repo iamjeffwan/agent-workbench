@@ -5,7 +5,12 @@ import {
   redactCredentials,
   redactCredentialText,
 } from '../../agent-workbench-security/index.mjs';
-import type { AgentToolStep, CodexRolloutLine } from './types.js';
+import type {
+  AgentToolStep,
+  CodexRolloutLine,
+  CodexTimelineEvent,
+  CodexTimelineEventKind,
+} from './types.js';
 
 const MAX_ARGUMENT_CHARS = 2_000;
 const MAX_PATCH_CHARS = 250_000;
@@ -14,10 +19,11 @@ const MAX_OUTPUT_CHARS = 4_000;
 export type CodexRolloutParseState = {
   sessionFile: string;
   projectRoot?: string;
-  conversationId?: string;
+  sessionId?: string;
   generationId?: string;
   cwd?: string;
   steps: AgentToolStep[];
+  events: CodexTimelineEvent[];
 };
 
 /**
@@ -42,7 +48,21 @@ export function createCodexRolloutParseState(
     sessionFile: path.resolve(sessionFile),
     projectRoot: projectRoot ? path.resolve(projectRoot) : undefined,
     steps: [],
+    events: [],
   };
+}
+
+/** Parse all observable Codex records needed by the unified project timeline. */
+export function parseCodexTimelineEvents(
+  sessionFile: string,
+  projectRoot?: string,
+): CodexTimelineEvent[] {
+  const abs = path.resolve(sessionFile);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`Codex session not found: ${abs}`);
+  }
+  const text = fs.readFileSync(abs, 'utf8');
+  return consumeCodexRolloutText(createCodexRolloutParseState(abs, projectRoot), text).events;
 }
 
 export function consumeCodexRolloutText(
@@ -51,7 +71,7 @@ export function consumeCodexRolloutText(
 ): CodexRolloutParseState {
   const byId = new Map(state.steps.map((step) => [step.id, step]));
 
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const [lineIndex, rawLine] of text.split(/\r?\n/).entries()) {
     const line = rawLine.trim();
     if (!line) {
       continue;
@@ -65,10 +85,10 @@ export function consumeCodexRolloutText(
     }
 
     if (event.type === 'session_meta' && event.payload) {
-      state.conversationId =
+      state.sessionId =
         stringOrNull(event.payload.session_id) ||
         stringOrNull(event.payload.id) ||
-        state.conversationId;
+        state.sessionId;
       continue;
     }
 
@@ -77,6 +97,17 @@ export function consumeCodexRolloutText(
         stringOrNull(event.payload.turn_id) || state.generationId;
       const cwd = stringOrNull(event.payload.cwd);
       state.cwd = cwd ? path.resolve(cwd) : undefined;
+      appendTimelineEvent(state, {
+        id: `context:${lineIndex + 1}`,
+        eventKind: 'context_ref',
+        name: 'Turn context',
+        timestamp: event.timestamp,
+        sourceLine: lineIndex + 1,
+        arguments: {
+          turnId: state.generationId || null,
+          cwd: state.cwd || null,
+        },
+      });
       continue;
     }
 
@@ -89,6 +120,96 @@ export function consumeCodexRolloutText(
         state.cwd = undefined;
       }
       state.generationId = generationId || state.generationId;
+      appendTimelineEvent(state, {
+        id: `task-started:${lineIndex + 1}`,
+        eventKind: 'task_status',
+        name: 'Task started',
+        timestamp: event.timestamp || stringOrNull(event.payload.started_at),
+        sourceLine: lineIndex + 1,
+        status: 'pending',
+        output: event.payload,
+      });
+      continue;
+    }
+
+    if (event.type === 'event_msg' && event.payload?.type === 'token_count') {
+      const info = record(event.payload.info);
+      const usage = record(info?.last_token_usage);
+      if (usage) {
+        appendTimelineEvent(state, {
+          id: `model-usage:${lineIndex + 1}`,
+          eventKind: 'model_call',
+          name: 'Model token usage',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          tokenUsage: tokenMetrics(usage),
+          output: { usage: tokenMetrics(usage) },
+        });
+      }
+      continue;
+    }
+
+    if (event.type === 'event_msg' && event.payload?.type === 'task_complete') {
+      const failed = event.payload.error != null;
+      appendTimelineEvent(state, {
+        id: `task-complete:${lineIndex + 1}`,
+        eventKind: 'task_status',
+        name: failed ? 'Task failed' : 'Task completed',
+        timestamp: event.timestamp || stringOrNull(event.payload.completed_at),
+        sourceLine: lineIndex + 1,
+        status: 'completed',
+        output: event.payload.last_agent_message,
+        failed,
+        error: failed ? event.payload.error : undefined,
+        durationMs: numberOrUndefined(event.payload.duration_ms),
+      });
+      continue;
+    }
+
+    if (event.type === 'event_msg' && event.payload?.type === 'turn_aborted') {
+      appendTimelineEvent(state, {
+        id: `turn-aborted:${lineIndex + 1}`,
+        eventKind: 'task_status',
+        name: 'Turn aborted',
+        timestamp: event.timestamp || stringOrNull(event.payload.completed_at),
+        sourceLine: lineIndex + 1,
+        status: 'completed',
+        output: event.payload.reason,
+        failed: true,
+        error: event.payload.reason,
+        durationMs: numberOrUndefined(event.payload.duration_ms),
+      });
+      continue;
+    }
+
+    if (event.type === 'event_msg' && event.payload?.type === 'agent_reasoning') {
+      const summary = stringOrNull(event.payload.text);
+      if (summary) {
+        appendTimelineEvent(state, {
+          id: `event-reasoning:${lineIndex + 1}`,
+          eventKind: 'reasoning',
+          name: 'Reasoning summary',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          content: summary,
+        });
+      }
+      continue;
+    }
+
+    if (event.type === 'event_msg' && event.payload?.type === 'agent_message') {
+      const message = stringOrNull(event.payload.message);
+      if (message) {
+        appendTimelineEvent(state, {
+          id: `event-message:${lineIndex + 1}`,
+          eventKind: 'assistant_message',
+          name: 'Agent message',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          content: message,
+          role: 'assistant',
+        });
+      }
       continue;
     }
 
@@ -116,8 +237,9 @@ export function consumeCodexRolloutText(
         endedAt: event.timestamp ?? null,
         status: 'completed',
         sessionFile: state.sessionFile,
+        sourceLine: lineIndex + 1,
         provider: 'codex',
-        conversationId: state.conversationId,
+        sessionId: state.sessionId,
         generationId: turnId,
         cwd: state.cwd,
         projectAssignment: state.cwd ? 'turn_context' : undefined,
@@ -130,11 +252,13 @@ export function consumeCodexRolloutText(
           ? changes as Record<string, unknown>
           : undefined,
         appliedChangeSuccess: success,
+        eventKind: 'file_change',
       };
       const existing = byId.get(id);
       if (existing) state.steps[state.steps.indexOf(existing)] = step;
       else state.steps.push(step);
       byId.set(id, step);
+      replaceTimelineEvent(state, step);
       continue;
     }
 
@@ -143,6 +267,54 @@ export function consumeCodexRolloutText(
     }
 
     const payloadType = event.payload.type;
+    if (payloadType === 'message') {
+      const role = stringOrNull(event.payload.role);
+      const content = messageText(event.payload.content);
+      if (content && (role === 'user' || role === 'assistant') && !isInjectedRuntimeContext(content)) {
+        appendTimelineEvent(state, {
+          id: `message:${lineIndex + 1}`,
+          eventKind: role === 'user' ? 'user_input' : 'assistant_message',
+          name: role === 'user' ? 'User input' : 'Assistant message',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          content,
+          role,
+        });
+      }
+      continue;
+    }
+
+    if (payloadType === 'reasoning') {
+      const summary = reasoningText(event.payload.summary);
+      if (summary) {
+        appendTimelineEvent(state, {
+          id: `reasoning:${lineIndex + 1}`,
+          eventKind: 'reasoning',
+          name: 'Reasoning summary',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          content: summary,
+        });
+      }
+      continue;
+    }
+
+    if (payloadType === 'agent_message') {
+      const content = messageText(event.payload.content);
+      if (content) {
+        appendTimelineEvent(state, {
+          id: `agent-message:${lineIndex + 1}`,
+          eventKind: 'assistant_message',
+          name: 'Agent message',
+          timestamp: event.timestamp,
+          sourceLine: lineIndex + 1,
+          content,
+          role: 'assistant',
+        });
+      }
+      continue;
+    }
+
     if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
       const id = stringOrNull(event.payload.call_id);
       const name = stringOrNull(event.payload.name);
@@ -193,8 +365,9 @@ export function consumeCodexRolloutText(
           endedAt: null,
           status: 'pending',
           sessionFile: state.sessionFile,
+          sourceLine: lineIndex + 1,
           provider: 'codex',
-          conversationId: state.conversationId,
+          sessionId: state.sessionId,
           generationId: state.generationId,
           cwd: state.cwd,
           projectAssignment: state.cwd ? 'turn_context' : undefined,
@@ -202,6 +375,7 @@ export function consumeCodexRolloutText(
           transportId: call.transportId,
           transportName: call.transportName,
           launchesProcess: canLaunchProcess(call.name, call.arguments),
+          eventKind: 'tool_call',
         };
         const previous = byId.get(step.id);
         if (previous) {
@@ -210,6 +384,7 @@ export function consumeCodexRolloutText(
         } else {
           state.steps.push(step);
         }
+        replaceTimelineEvent(state, step);
         byId.set(step.id, step);
       }
       continue;
@@ -454,6 +629,126 @@ function resolveNestedArguments(execSource: unknown, args: unknown): unknown {
   return args;
 }
 
+type TimelineEventInput = {
+  id: string;
+  eventKind: CodexTimelineEventKind;
+  name: string;
+  timestamp?: string | null;
+  sourceLine: number;
+  content?: string;
+  role?: 'user' | 'assistant';
+  arguments?: unknown;
+  output?: unknown;
+  status?: 'pending' | 'completed';
+  failed?: boolean;
+  error?: unknown;
+  durationMs?: number;
+  tokenUsage?: CodexTimelineEvent['tokenUsage'];
+};
+
+function appendTimelineEvent(
+  state: CodexRolloutParseState,
+  input: TimelineEventInput,
+): void {
+  if (state.projectRoot && (!state.cwd || !isPathWithin(state.cwd, state.projectRoot))) {
+    return;
+  }
+  const event: CodexTimelineEvent = {
+    kind: 'agent_tool',
+    id: input.id,
+    name: input.name,
+    arguments: input.arguments,
+    output: input.output,
+    startedAt: input.timestamp || null,
+    endedAt: input.status === 'completed' ? input.timestamp || null : null,
+    status: input.status || 'completed',
+    sessionFile: state.sessionFile,
+    provider: 'codex',
+    sessionId: state.sessionId,
+    generationId: state.generationId,
+    cwd: state.cwd,
+    projectAssignment: state.cwd ? 'turn_context' : undefined,
+    source: 'codex-rollout',
+    sourceLine: input.sourceLine,
+    eventKind: input.eventKind,
+    content: input.content,
+    role: input.role,
+    failed: input.failed,
+    error: input.error,
+    durationMs: input.durationMs,
+    tokenUsage: input.tokenUsage,
+  };
+  state.events.push(event);
+}
+
+function replaceTimelineEvent(
+  state: CodexRolloutParseState,
+  step: AgentToolStep,
+): void {
+  if (state.projectRoot && (!step.cwd || !isPathWithin(step.cwd, state.projectRoot))) {
+    return;
+  }
+  const event = step as CodexTimelineEvent;
+  const index = state.events.findIndex(item => item.id === step.id);
+  if (index >= 0) state.events[index] = event;
+  else state.events.push(event);
+}
+
+function messageText(value: unknown): string {
+  if (typeof value === 'string') return redactCredentialText(value, { context: 'auto' });
+  if (!Array.isArray(value)) return '';
+  return value.map(item => {
+    if (typeof item === 'string') return item;
+    const part = record(item);
+    return stringOrNull(part?.text) || '';
+  }).filter(Boolean).join('\n');
+}
+
+function reasoningText(value: unknown): string {
+  if (typeof value === 'string') return redactCredentialText(value, { context: 'auto' });
+  if (!Array.isArray(value)) return '';
+  return value.map(item => {
+    if (typeof item === 'string') return item;
+    const part = record(item);
+    return stringOrNull(part?.text) || '';
+  }).filter(Boolean).join('\n');
+}
+
+function isInjectedRuntimeContext(value: string): boolean {
+  const trimmed = value.trimStart();
+  return (
+    (trimmed.startsWith('<recommended_plugins>') &&
+      trimmed.includes('# AGENTS.md instructions') &&
+      trimmed.includes('<environment_context>')) ||
+    (trimmed.startsWith('<environment_context>') && trimmed.includes('<workspace_roots>'))
+  );
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function number(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return number(value) ?? undefined;
+}
+
+function tokenMetrics(value: Record<string, unknown>): NonNullable<CodexTimelineEvent['tokenUsage']> {
+  return {
+    input: number(value.input_tokens),
+    cachedInput: number(value.cached_input_tokens),
+    cacheWriteInput: number(value.cache_write_input_tokens),
+    output: number(value.output_tokens),
+    reasoningOutput: number(value.reasoning_output_tokens),
+    total: number(value.total_tokens),
+  };
+}
+
 function resolveIdentifierBinding(source: string, name: string): unknown | null {
   const pattern = new RegExp(
     `(?:(?:const|let|var)\\s+${name}\\s*=\\s*)((?:"(?:\\\\.|[^"\\\\])*")|(?:'(?:\\\\.|[^'\\\\])*')|(?:\`(?:\\\\.|[^\\\\\`])*\`))`,
@@ -487,7 +782,7 @@ function parseStringLiteral(text: string): string | null {
 function parseCommonObjectFields(text: string): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
   const keys = [
-    'command', 'workdir', 'cwd', 'path', 'prompt', 'cell_id',
+    'command', 'cmd', 'workdir', 'cwd', 'path', 'prompt', 'cell_id',
     'timeout_ms', 'yield_time_ms', 'terminate',
   ];
   for (const key of keys) {

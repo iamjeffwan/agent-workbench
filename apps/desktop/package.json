@@ -12,11 +12,10 @@
     "dev": "node ./scripts/run-electron.mjs --dev",
     "ui-preview": "pnpm run build && node ./scripts/run-electron.mjs --ui-preview",
     "shortcut": "pnpm run build && node ./scripts/create-desktop-shortcut.mjs",
-    "test": "pnpm run typecheck && pnpm run build && node --test \"test/*.test.mjs\""
+    "test": "pnpm run typecheck && pnpm run build && node --experimental-strip-types --test \"test/*.test.mjs\""
   },
   "dependencies": {
     "@agent-workbench/codex-adapter": "workspace:*",
-    "@agent-workbench/project-observe": "workspace:*",
     "@agent-workbench/timeline": "workspace:*",
     "@fontsource/dm-mono": "5.0.19",
     "@fontsource/dm-sans": "5.0.20",

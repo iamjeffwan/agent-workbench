@@ -5,25 +5,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   defaultCodexSessionsDir,
-  readCodexProjectSteps,
+  readCodexTaskEvidence,
+  readCodexProjectTimelineEvents,
 } from '@agent-workbench/codex-adapter';
-import { installProjectObservation } from '@agent-workbench/project-observe';
 import {
   buildTimeline,
-  classifyAgentTool,
-  readJsonl,
+  reviewTimelineResults,
 } from '@agent-workbench/timeline';
-import { createConversationHistoryService } from './conversation-history.mjs';
+import { createSessionHistoryService } from './session-history.mjs';
 import { createDeepSeekModelService } from './deepseek-model.mjs';
 import { createFlowDocumentGenerator } from './flow-document-generator.mjs';
 import { createProjectAssetsService } from './project-assets.mjs';
+import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rendererDistDir = path.join(__dirname, '../dist/renderer');
 const iconPath = path.join(__dirname, '../assets/icon.png');
-const workbenchHome = resolveWorkbenchHome();
-const conversationHistory = createConversationHistoryService({
+const sessionHistory = createSessionHistoryService({
   getUserDataPath: () => app.getPath('userData'),
 });
 const deepSeekModel = createDeepSeekModelService({
@@ -41,11 +40,15 @@ const flowDocumentGenerator = createFlowDocumentGenerator({
 });
 const taskLibrary = createTaskLibraryService({
   getUserDataPath: () => app.getPath('userData'),
-  resolveSessionFiles: (projectRoot, conversationIds) =>
-    conversationHistory.resolveTrackedSessionFiles(projectRoot, conversationIds),
+  resolveSessionFiles: (projectRoot, sessionIds) =>
+    sessionHistory.resolveTrackedSessionFiles(projectRoot, sessionIds),
   generateDocument: input => flowDocumentGenerator.generate(input),
   completeModel: (input, context) => deepSeekModel.complete(input, context),
   onChange: change => publishTaskUpdate(change),
+});
+const projectSync = createProjectSyncService({
+  readTask: taskId => taskLibrary.readTask(taskId),
+  readTaskEvidence: readCodexTaskEvidence,
 });
 const projectAssets = createProjectAssetsService({
   readTask: taskId => taskLibrary.readTask(taskId),
@@ -67,6 +70,9 @@ let mainWindow = null;
 /** @type {{
  *  projectRoot: string | null,
  *  turns: unknown[],
+ *  review: null | Record<string, unknown>,
+ *  reviewsByTurn: Record<string, Record<string, unknown>>,
+ *  validationResult: null | Record<string, unknown>,
  *  error: string | null,
  *  observation: null | Record<string, unknown>,
  *  adapters: Record<string, Record<string, unknown>>,
@@ -82,16 +88,12 @@ let mainWindow = null;
 let state = {
   projectRoot: null,
   turns: [],
+  review: null,
+  reviewsByTurn: {},
+  validationResult: null,
   error: null,
   observation: null,
   adapters: {
-    cursor: {
-      status: 'idle',
-      stepCount: 0,
-      lastEventAt: null,
-      processLinking: 'ready',
-      codeState: 'ready',
-    },
     codex: {
       status: 'idle',
       sessionCount: 0,
@@ -126,14 +128,6 @@ let codexRefreshTimer = null;
 /** @type {'idle' | 'live' | 'history'} */
 let codexObservationMode = 'idle';
 
-function resolveWorkbenchHome() {
-  if (process.env.AGENT_WORKBENCH_HOME) {
-    return path.resolve(process.env.AGENT_WORKBENCH_HOME);
-  }
-  // apps/desktop/electron -> repo root
-  return path.resolve(__dirname, '../../..');
-}
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -165,67 +159,14 @@ function createWindow() {
   });
 }
 
-function workbenchPaths(projectRoot) {
-  const dir = path.join(projectRoot, '.agent-workbench');
-  return {
-    dir,
-    agentSteps: path.join(dir, 'agent-steps.jsonl'),
-    programRecords: path.join(dir, 'trace-records.jsonl'),
-    codeChanges: path.join(dir, 'code-changes.jsonl'),
-    manifest: path.join(dir, 'trace-manifest.json'),
-    observation: path.join(dir, 'observation.json'),
-    hookErrors: path.join(dir, 'hook-errors.log'),
-  };
-}
-
-function loadMethods(manifestPath) {
-  if (!fs.existsSync(manifestPath)) {
-    return {};
-  }
-  try {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    const map = {};
-    for (const method of manifest.methods || []) {
-      const label = method.className
-        ? `${method.className}.${method.methodName}`
-        : method.methodName;
-      map[method.id] = {
-        label,
-        sourceFile: method.sourceFile,
-        compiledFile: method.compiledFile,
-      };
-    }
-    return map;
-  } catch (error) {
-    state.error =
-      error instanceof Error ? error.message : 'Failed to read manifest';
-    return {};
-  }
-}
-
-function readObservation(observationPath) {
-  if (!fs.existsSync(observationPath)) {
-    return null;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(observationPath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
 function refreshState() {
   if (!state.projectRoot) {
     state.turns = [];
+    state.review = null;
+    state.reviewsByTurn = {};
+    state.validationResult = null;
     state.error = null;
     state.observation = null;
-    state.adapters.cursor = {
-      status: 'idle',
-      stepCount: 0,
-      lastEventAt: null,
-      processLinking: 'ready',
-      codeState: 'ready',
-    };
     state.adapters.codex = {
       status: 'idle',
       sessionCount: 0,
@@ -245,46 +186,33 @@ function refreshState() {
     return;
   }
 
-  const paths = workbenchPaths(state.projectRoot);
   state.files = {
-    agentSteps: paths.agentSteps,
-    programRecords: paths.programRecords,
-    codeChanges: paths.codeChanges,
-    manifest: paths.manifest,
+    agentSteps: null,
+    programRecords: null,
+    codeChanges: null,
+    manifest: null,
   };
-  state.observation = readObservation(paths.observation);
+  state.observation = null;
 
   try {
-    const cursorSteps = readJsonl(paths.agentSteps);
     const resolved = resolveCodexObservationFiles(state.projectRoot);
     const codexSteps = resolved.status === 'ready'
-      ? readCodexProjectSteps({ projectRoot: state.projectRoot, sessionFiles: resolved.data.sessionFiles })
+      ? readCodexProjectTimelineEvents({ projectRoot: state.projectRoot, sessionFiles: resolved.data.sessionFiles })
       : [];
-    const projectCursorSteps = cursorSteps.filter((step) => stepBelongsToProject(step, state.projectRoot));
     const projectCodexSteps = codexSteps.filter((step) => stepBelongsToProject(step, state.projectRoot));
-    const agentSteps = [...projectCursorSteps, ...projectCodexSteps];
-    const programRecords = readJsonl(paths.programRecords);
-    const codeChanges = readJsonl(paths.codeChanges);
-    const methods = loadMethods(paths.manifest);
     state.turns = buildTimeline(
-      agentSteps,
-      programRecords,
-      methods,
-      codeChanges,
+      projectCodexSteps,
+      [],
+      {},
+      [],
     );
+    state.validationResult = readValidationResult(state.projectRoot);
+    state.review = reviewTimelineResults(state.turns, {
+      results: state.validationResult,
+    });
+    state.reviewsByTurn = buildTurnReviews(state.turns, state.validationResult);
     state.sources = {
-      cursor: agentCoverage(cursorSteps, state.projectRoot),
       codex: agentCoverage(codexSteps, state.projectRoot),
-      runtime: runtimeCoverage(programRecords, agentSteps),
-      changes: changeCoverage(codeChanges),
-    };
-    const lastHookError = readLastLine(paths.hookErrors);
-    state.adapters.cursor = {
-      ...state.adapters.cursor,
-      status: state.observation?.workbenchHome ? 'ready' : 'error',
-      stepCount: cursorSteps.filter((step) => !step.parseError).length,
-      lastEventAt: latestTimestamp(cursorSteps),
-      lastHookError,
     };
     state.adapters.codex = {
       ...state.adapters.codex,
@@ -308,6 +236,9 @@ function refreshState() {
     state.error =
       error instanceof Error ? error.message : 'Failed to build timeline';
     state.turns = [];
+    state.review = null;
+    state.reviewsByTurn = {};
+    state.validationResult = null;
     state.fileBus = {
       ...state.fileBus,
       status: 'error',
@@ -322,9 +253,8 @@ function agentCoverage(rows, projectRoot) {
   const valid = rows.filter((row) => !row.parseError);
   const assignedToTurn = valid.filter((row) => typeof row.generationId === 'string' && row.generationId);
   const assignedToProject = assignedToTurn.filter((row) => stepBelongsToProject(row, projectRoot));
-  const classified = assignedToProject.map((row) => ({ row, classification: classifyAgentTool(row) }));
-  const normalized = classified.filter((item) => item.classification.normalized);
-  const rendered = normalized.filter((item) => item.classification.display);
+  const normalized = assignedToProject;
+  const rendered = normalized;
   return {
     sourceRecords: rows.length,
     assignedToTurn: assignedToTurn.length,
@@ -332,41 +262,8 @@ function agentCoverage(rows, projectRoot) {
     normalized: normalized.length,
     rendered: rendered.length,
     hidden: normalized.length - rendered.length,
-    unknown: assignedToProject.length - normalized.length,
-    invalid: rows.length - valid.length,
-  };
-}
-
-function runtimeCoverage(rows, agentSteps) {
-  const valid = rows.filter((row) => !row.parseError);
-  const normalized = valid.filter((row) => typeof row.callId === 'number');
-  const origins = new Set(agentSteps.map((step) => step.id).filter(Boolean));
-  const linked = normalized.filter((row) => row.processOriginId && origins.has(row.processOriginId));
-  return {
-    sourceRecords: rows.length,
-    assignedToTurn: linked.length,
-    assignedToProject: valid.length,
-    normalized: normalized.length,
-    rendered: normalized.length,
-    hidden: 0,
-    unknown: valid.length - normalized.length,
-    invalid: rows.length - valid.length,
-  };
-}
-
-function changeCoverage(rows) {
-  const changes = rows.filter((row) => !row.parseError && row.kind === 'code_change');
-  const rendered = changes.filter((row) => row.changed !== false);
-  return {
-    sourceRecords: rows.length,
-    assignedToTurn: 0,
-    assignedToProject: changes.length,
-    normalized: changes.length,
-    rendered: rendered.length,
-    hidden: changes.length - rendered.length,
     unknown: 0,
-    invalid: rows.filter((row) => row.parseError).length,
-    unassigned: changes.length,
+    invalid: rows.length - valid.length,
   };
 }
 
@@ -385,15 +282,6 @@ function comparableProjectPath(value) {
   }
   const resolved = path.resolve(normalized);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
-
-function readLastLine(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    return fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/).filter(Boolean).at(-1) || null;
-  } catch {
-    return 'Hook error log could not be read.';
-  }
 }
 
 function latestTimestamp(rows) {
@@ -423,36 +311,100 @@ function watchProject(projectRoot) {
     watcher.close();
     watcher = null;
   }
-  const dir = workbenchPaths(projectRoot).dir;
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    watcher = fs.watch(dir, { persistent: true }, () => {
-      refreshState();
-    });
-    state.fileBus = {
-      status: 'watching',
-      directory: dir,
-      lastRefreshAt: state.fileBus.lastRefreshAt,
-      error: null,
-    };
-    watcher.on('error', (error) => {
-      state.fileBus = {
-        status: 'error',
-        directory: dir,
-        lastRefreshAt: state.fileBus.lastRefreshAt,
-        error: error instanceof Error ? error.message : 'File watcher failed',
-      };
-      publish();
-    });
-  } catch (error) {
-    state.fileBus = {
-      status: 'error',
-      directory: dir,
-      lastRefreshAt: state.fileBus.lastRefreshAt,
-      error: error instanceof Error ? error.message : 'Unable to watch project activity',
-    };
-  }
+  state.fileBus = {
+    status: 'watching',
+    directory: projectRoot,
+    lastRefreshAt: state.fileBus.lastRefreshAt,
+    error: null,
+  };
   watchCodexSources(projectRoot);
+}
+
+function readValidationResult(projectRoot) {
+  const candidates = [
+    path.join(projectRoot, '.agent-workbench', 'validation-result.json'),
+    path.join(projectRoot, 'test-results', 'agent-workbench-validation.json'),
+  ];
+  const statuses = new Set(['passed', 'failed', 'incomplete', 'unknown']);
+  const checkStatuses = new Set(['passed', 'failed', 'incomplete', 'not_run', 'unknown']);
+  const checkKinds = new Set(['command', 'test', 'build', 'lint', 'playwright', 'artifact']);
+  const artifactKinds = new Set(['screenshot', 'trace', 'video', 'report', 'other']);
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      if (!parsed || parsed.version !== 1 || typeof parsed.profileId !== 'string' || !statuses.has(parsed.status)) {
+        continue;
+      }
+      const checks = Array.isArray(parsed.checks)
+        ? parsed.checks
+          .filter(check => check && typeof check.id === 'string' && checkStatuses.has(check.status))
+          .map(check => ({
+            id: check.id,
+            label: typeof check.label === 'string' ? check.label : undefined,
+            command: typeof check.command === 'string' ? check.command : undefined,
+            result: typeof check.result === 'string' ? check.result : undefined,
+            kind: typeof check.kind === 'string' && checkKinds.has(check.kind) ? check.kind : undefined,
+            status: check.status,
+            summary: typeof check.summary === 'string' ? check.summary : undefined,
+            durationMs: typeof check.durationMs === 'number' ? check.durationMs : null,
+            artifacts: Array.isArray(check.artifacts)
+              ? check.artifacts.filter(artifact => artifact && typeof artifact.path === 'string' && artifactKinds.has(artifact.kind))
+                .map(artifact => ({ path: artifact.path, kind: artifact.kind }))
+              : undefined,
+          }))
+        : [];
+      return {
+        version: 1,
+        profileId: parsed.profileId,
+        status: parsed.status,
+        checks,
+        generatedAt: typeof parsed.generatedAt === 'string' ? parsed.generatedAt : undefined,
+        sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+        generationId: typeof parsed.generationId === 'string'
+          ? parsed.generationId
+          : typeof parsed.turnId === 'string'
+            ? parsed.turnId
+            : undefined,
+      };
+    } catch {
+      // A malformed optional result must not make the observation view unreadable.
+    }
+  }
+  return null;
+}
+
+function buildTurnReviews(turns, validationResult) {
+  const observableTurns = turns.filter(turn => turn.type === 'turn' && turn.generationId);
+  const latestKey = observableTurns
+    .map(turn => ({ turn, timestamp: timestampValue(turn.startedAt) ?? 0 }))
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .at(-1);
+  return Object.fromEntries(observableTurns.map(turn => {
+    const key = turnIdentity(turn);
+    const result = validationResult && validationResultMatchesTurn(validationResult, turn, key === turnIdentity(latestKey?.turn))
+      ? validationResult
+      : null;
+    return [key, reviewTimelineResults([turn], { results: result })];
+  }));
+}
+
+function validationResultMatchesTurn(result, turn, isLatestWithoutIdentity) {
+  const hasIdentity = Boolean(result.sessionId || result.generationId);
+  if (!hasIdentity) return isLatestWithoutIdentity;
+  return (!result.sessionId || result.sessionId === turn.sessionId) &&
+    (!result.generationId || result.generationId === turn.generationId);
+}
+
+function turnIdentity(turn) {
+  return `${turn?.sessionId || 'unassigned'}:${turn?.generationId || 'unknown'}`;
+}
+
+function timestampValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function watchCodexSources(projectRoot) {
@@ -488,24 +440,24 @@ function watchCodexSources(projectRoot) {
 
 function resolveCodexObservationFiles(projectRoot) {
   if (codexObservationMode === 'live') {
-    const conversations = conversationHistory.listConversations(projectRoot);
-    return conversations.status === 'ready'
-      ? conversationHistory.resolveTrackedSessionFiles(
+    const sessions = sessionHistory.listSessions(projectRoot);
+    return sessions.status === 'ready'
+      ? sessionHistory.resolveTrackedSessionFiles(
           projectRoot,
-          conversations.data.map(conversation => conversation.id),
+          sessions.data.map(session => session.id),
         )
-      : conversations;
+      : sessions;
   }
   if (codexObservationMode === 'history') {
-    const selection = conversationHistory.getTrackedSelection(projectRoot);
+    const selection = sessionHistory.getTrackedSelection(projectRoot);
     return selection.status === 'ready'
-      ? conversationHistory.resolveTrackedSessionFiles(projectRoot, selection.data.conversationIds)
+      ? sessionHistory.resolveTrackedSessionFiles(projectRoot, selection.data.sessionIds)
       : selection;
   }
   return {
     status: 'ready',
     source: 'codex-rollout',
-    data: { projectRoot, conversationIds: [], sessionFiles: [] },
+    data: { projectRoot, sessionIds: [], sessionFiles: [] },
     error: null,
   };
 }
@@ -541,29 +493,9 @@ function useCodexObservationMode(mode) {
   return state;
 }
 
-function enableObservation(projectRoot) {
-  const result = installProjectObservation({
-    projectRoot,
-    workbenchHome,
-  });
-  state.observation = {
-    ...readObservation(result.observationPath),
-    warnings: result.warnings,
-  };
-  state.adapters.cursor = {
-    ...state.adapters.cursor,
-    status: 'ready',
-    error: null,
-  };
-  if (result.warnings.length) {
-    state.error = result.warnings.join('; ');
-  }
-  return result;
-}
-
 async function openProject() {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
-    title: '选择要观察的项目目录',
+    title: '选择项目目录',
     properties: ['openDirectory'],
   });
   if (result.canceled || !result.filePaths[0]) {
@@ -575,24 +507,9 @@ async function openProject() {
 
 function activateProject(projectRoot) {
   codexObservationMode = 'idle';
-  try {
-    enableObservation(projectRoot);
-    state.error = state.observation?.warnings?.length
-      ? state.observation.warnings.join('; ')
-      : null;
-  } catch (error) {
-    state.projectRoot = projectRoot;
-    state.observation = null;
-    state.error =
-      error instanceof Error
-        ? `观察配置注入失败：${error.message}`
-        : '观察配置注入失败';
-    watchProject(projectRoot);
-    refreshState();
-    return state;
-  }
-
   state.projectRoot = projectRoot;
+  state.observation = null;
+  state.error = null;
   watchProject(state.projectRoot);
   refreshState();
   return state;
@@ -605,37 +522,29 @@ app.whenReady().then(() => {
   ipcMain.handle('project:getState', () => state);
   ipcMain.handle('project:refresh', () => {
     if (state.projectRoot) {
-      try {
-        enableObservation(state.projectRoot);
-        state.error = null;
-      } catch (error) {
-        state.error =
-          error instanceof Error
-            ? `观察配置刷新失败：${error.message}`
-            : '观察配置刷新失败';
-      }
+      watchProject(state.projectRoot);
     }
     refreshState();
     return state;
   });
   ipcMain.handle('view:startLive', () => useCodexObservationMode('live'));
   ipcMain.handle('view:useHistory', () => useCodexObservationMode('history'));
-  ipcMain.handle('history:listProjects', () => conversationHistory.listProjects());
-  ipcMain.handle('history:listConversations', (_event, projectRoot) =>
-    conversationHistory.listConversations(projectRoot ?? state.projectRoot));
-  ipcMain.handle('history:readConversation', (_event, projectRoot, conversationId) =>
-    conversationHistory.readConversation(projectRoot ?? state.projectRoot, conversationId));
+  ipcMain.handle('history:listProjects', () => sessionHistory.listProjects());
+  ipcMain.handle('history:listSessions', (_event, projectRoot) =>
+    sessionHistory.listSessions(projectRoot ?? state.projectRoot));
+  ipcMain.handle('history:readSession', (_event, projectRoot, sessionId) =>
+    sessionHistory.readSession(projectRoot ?? state.projectRoot, sessionId));
   ipcMain.handle('history:getTrackedSelection', (_event, projectRoot) =>
-    conversationHistory.getTrackedSelection(projectRoot ?? state.projectRoot));
-  ipcMain.handle('history:setTrackedSelection', (_event, projectRoot, conversationIds) => {
+    sessionHistory.getTrackedSelection(projectRoot ?? state.projectRoot));
+  ipcMain.handle('history:setTrackedSelection', (_event, projectRoot, sessionIds) => {
     const targetProjectRoot = projectRoot ?? state.projectRoot;
-    const result = conversationHistory.setTrackedSelection(targetProjectRoot, conversationIds);
+    const result = sessionHistory.setTrackedSelection(targetProjectRoot, sessionIds);
     if (result.status === 'ready' && targetProjectRoot) {
       const isActiveProject = Boolean(
         state.projectRoot &&
         comparableProjectPath(state.projectRoot) === comparableProjectPath(targetProjectRoot),
       );
-      if (conversationIds.length > 0 && !isActiveProject) {
+      if (sessionIds.length > 0 && !isActiveProject) {
         activateProject(targetProjectRoot);
       } else if (isActiveProject) {
         if (codexObservationMode === 'history') {
@@ -651,6 +560,13 @@ app.whenReady().then(() => {
   ipcMain.handle('tasks:create', (_event, input) => taskLibrary.createTask(input));
   ipcMain.handle('tasks:discuss', (_event, taskId, message) => taskLibrary.discuss(taskId, message));
   ipcMain.handle('tasks:saveScript', (_event, taskId, input) => taskLibrary.saveScript(taskId, input));
+  ipcMain.handle('sync:listTasks', (_event, projectRoot) => projectSync.listSyncTasks(projectRoot ?? state.projectRoot));
+  ipcMain.handle('sync:readTask', (_event, projectRoot, taskId) => projectSync.readSyncTask(projectRoot ?? state.projectRoot, taskId));
+  ipcMain.handle('sync:addTask', (_event, taskId) => projectSync.addTaskToSync(taskId));
+  ipcMain.handle('sync:repositoryStatus', (_event, projectRoot) => projectSync.getRepositoryStatus(projectRoot ?? state.projectRoot));
+  ipcMain.handle('sync:pullRepository', (_event, projectRoot) => projectSync.pullRepository(projectRoot ?? state.projectRoot));
+  ipcMain.handle('sync:publishRepository', (_event, input) => projectSync.publishRepository(input));
+  ipcMain.handle('sync:createGithubRepository', (_event, input) => projectSync.createGithubRepository(input));
   ipcMain.handle('assets:list', (_event, projectRoot) => projectAssets.listAssets(projectRoot ?? state.projectRoot));
   ipcMain.handle('assets:read', (_event, projectRoot, relativePath) =>
     projectAssets.readAsset(projectRoot ?? state.projectRoot, relativePath));

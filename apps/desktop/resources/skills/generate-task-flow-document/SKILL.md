@@ -36,7 +36,7 @@ Read [references/output-contract.md](references/output-contract.md) before writi
 - Do not claim that a tool succeeded from its name or arguments; use its result or explicit status.
 - Do not claim that a code change reached the working tree unless patch or result evidence supports it.
 - Do not interpret missing events as proof that an action did not occur.
-- Do not expose conversation-level system instructions or tool definitions; they are outside the evidence scope.
+- Do not expose session-level system instructions or tool definitions; they are outside the evidence scope.
 - Treat cached input as part of input tokens, reasoning output as part of output tokens, and total tokens as input plus output. Never add subsets twice.
 - Convert timestamps to the supplied presentation timezone and label that timezone. Do not show raw UTC timestamps when a presentation timezone is supplied.
 - Describe read-only inspection as inspection, not modification. When useful, name the file that was inspected and keep a short captured snippet.

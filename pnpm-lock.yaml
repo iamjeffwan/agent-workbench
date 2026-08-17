@@ -13,9 +13,6 @@ importers:
       '@agent-workbench/codex-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-adapter
-      '@agent-workbench/project-observe':
-        specifier: workspace:*
-        version: link:../../packages/project-observe
       '@agent-workbench/timeline':
         specifier: workspace:*
         version: link:../../packages/timeline
@@ -114,34 +111,6 @@ importers:
   packages/agent-workbench-security: {}
 
   packages/codex-adapter:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
-      typescript:
-        specifier: ^5.7.0
-        version: 5.7.2
-
-  packages/cursor-adapter:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
-      typescript:
-        specifier: ^5.7.0
-        version: 5.7.2
-
-  packages/program-tracer:
-    dependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.7.2
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.0
-        version: 22.20.1
-
-  packages/project-observe:
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

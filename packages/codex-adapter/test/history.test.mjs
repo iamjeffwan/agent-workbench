@@ -5,9 +5,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  listCodexConversationProjects,
-  listCodexProjectConversations,
-  readCodexProjectConversation,
+  listCodexSessionProjects,
+  listCodexProjectSessions,
+  readCodexProjectSession,
   readCodexTaskEvidence,
 } from '../dist/index.js';
 
@@ -21,7 +21,7 @@ test('lists project turns by turn_context cwd and keeps their user input', () =>
 
   writeRollout(sessionFile, [
     row('2026-08-10T01:00:00.000Z', 'session_meta', {
-      session_id: 'conversation-project',
+      session_id: 'session-project',
       cwd: path.join(root, 'different-project'),
       source: 'vscode',
       thread_source: 'user',
@@ -68,29 +68,29 @@ test('lists project turns by turn_context cwd and keeps their user input', () =>
     }),
   ]);
 
-  const conversations = listCodexProjectConversations({ projectRoot, sessionsDir });
+  const sessions = listCodexProjectSessions({ projectRoot, sessionsDir });
 
-  assert.equal(conversations.length, 1);
-  const [conversation] = conversations;
-  assert.equal(conversation.id, 'conversation-project');
-  assert.equal(conversation.provider, 'codex');
-  assert.equal(conversation.source, 'vscode');
-  assert.equal(conversation.sessionFile, path.resolve(sessionFile));
-  assert.equal(conversation.turns.length, 2);
-  assert.deepEqual(conversation.turns.map(turn => turn.id), ['turn-one', 'turn-two']);
-  assert.equal(conversation.turns[0].cwd, path.resolve(projectRoot));
-  assert.equal(conversation.turns[0].status, 'completed');
-  assert.equal(conversation.threadSource, 'user');
-  assert.deepEqual(conversation.turns[0].activities, ['WRITE', 'DIFF']);
-  assert.equal(conversation.turns[0].hasObservableActivity, true);
-  assert.match(conversation.turns[0].userInput, /ghp_1234567890abcdefghijklmnopqrstuvwxyz/);
-  assert.doesNotMatch(conversation.turns[0].userInput, /recommended_plugins/);
-  assert.doesNotMatch(conversation.turns[0].userInput, /workspace_roots/);
-  assert.equal(conversation.turns[1].status, 'aborted');
-  assert.deepEqual(conversation.turns[1].activities, ['ERROR']);
-  assert.equal(conversation.turns[1].hasObservableActivity, false);
-  assert.equal(conversation.startedAt, '2026-08-10T01:01:00.000Z');
-  assert.equal(conversation.updatedAt, '2026-08-10T01:03:02.000Z');
+  assert.equal(sessions.length, 1);
+  const [session] = sessions;
+  assert.equal(session.id, 'session-project');
+  assert.equal(session.provider, 'codex');
+  assert.equal(session.source, 'vscode');
+  assert.equal(session.sessionFile, path.resolve(sessionFile));
+  assert.equal(session.turns.length, 2);
+  assert.deepEqual(session.turns.map(turn => turn.id), ['turn-one', 'turn-two']);
+  assert.equal(session.turns[0].cwd, path.resolve(projectRoot));
+  assert.equal(session.turns[0].status, 'completed');
+  assert.equal(session.threadSource, 'user');
+  assert.deepEqual(session.turns[0].activities, ['WRITE', 'DIFF']);
+  assert.equal(session.turns[0].hasObservableActivity, true);
+  assert.match(session.turns[0].userInput, /ghp_1234567890abcdefghijklmnopqrstuvwxyz/);
+  assert.doesNotMatch(session.turns[0].userInput, /recommended_plugins/);
+  assert.doesNotMatch(session.turns[0].userInput, /workspace_roots/);
+  assert.equal(session.turns[1].status, 'aborted');
+  assert.deepEqual(session.turns[1].activities, ['ERROR']);
+  assert.equal(session.turns[1].hasObservableActivity, false);
+  assert.equal(session.startedAt, '2026-08-10T01:01:00.000Z');
+  assert.equal(session.updatedAt, '2026-08-10T01:03:02.000Z');
 });
 
 test('uses response metadata before current context and never guesses project ownership', () => {
@@ -102,7 +102,7 @@ test('uses response metadata before current context and never guesses project ow
 
   writeRollout(path.join(sessionsDir, 'rollout-assignment.jsonl'), [
     row('2026-08-10T02:00:00.000Z', 'session_meta', {
-      session_id: 'conversation-assignment', cwd: projectRoot, thread_source: 'user',
+      session_id: 'session-assignment', cwd: projectRoot, thread_source: 'user',
     }),
     row('2026-08-10T02:01:00.000Z', 'turn_context', {
       turn_id: 'project-turn', cwd: projectRoot,
@@ -128,12 +128,12 @@ test('uses response metadata before current context and never guesses project ow
     }),
   ]);
 
-  const [conversation] = listCodexProjectConversations({ projectRoot, sessionsDir });
+  const [session] = listCodexProjectSessions({ projectRoot, sessionsDir });
 
-  assert.deepEqual(conversation.turns.map(turn => turn.id), ['project-turn']);
-  assert.equal(conversation.turns[0].userInput, 'Project prompt without metadata');
-  assert.doesNotMatch(conversation.turns[0].userInput, /Outside prompt/);
-  assert.doesNotMatch(conversation.turns[0].userInput, /Never assign/);
+  assert.deepEqual(session.turns.map(turn => turn.id), ['project-turn']);
+  assert.equal(session.turns[0].userInput, 'Project prompt without metadata');
+  assert.doesNotMatch(session.turns[0].userInput, /Outside prompt/);
+  assert.doesNotMatch(session.turns[0].userInput, /Never assign/);
 });
 
 test('classifies observable work, failures and leaves reads out of activity', () => {
@@ -145,7 +145,7 @@ test('classifies observable work, failures and leaves reads out of activity', ()
 
   writeRollout(path.join(sessionsDir, 'rollout-activity.jsonl'), [
     row('2026-08-10T03:00:00.000Z', 'session_meta', {
-      session_id: 'conversation-activity', source: { type: 'appServer' }, thread_source: 'user',
+      session_id: 'session-activity', source: { type: 'appServer' }, thread_source: 'user',
     }),
     row('2026-08-10T03:00:01.000Z', 'turn_context', {
       turn_id: 'activity-turn', cwd: projectRoot,
@@ -163,10 +163,10 @@ test('classifies observable work, failures and leaves reads out of activity', ()
     }),
   ]);
 
-  const [conversation] = listCodexProjectConversations({ projectRoot, sessionsDir });
-  const [turn] = conversation.turns;
+  const [session] = listCodexProjectSessions({ projectRoot, sessionsDir });
+  const [turn] = session.turns;
 
-  assert.equal(conversation.source, 'appServer');
+  assert.equal(session.source, 'appServer');
   assert.equal(turn.status, 'failed');
   assert.deepEqual(turn.activities, [
     'SEARCH', 'PROCESS', 'REQUEST', 'WRITE', 'TEST', 'TOOL', 'ERROR',
@@ -185,7 +185,7 @@ test('keeps the complete original turn input while bounding only its title', () 
 
   writeRollout(path.join(sessionsDir, 'rollout-bounds.jsonl'), [
     row('2026-08-10T04:00:00.000Z', 'session_meta', {
-      session_id: 'conversation-bounds', thread_source: 'user',
+      session_id: 'session-bounds', thread_source: 'user',
     }),
     row('2026-08-10T04:00:01.000Z', 'turn_context', {
       turn_id: 'bounds-turn', cwd: projectRoot,
@@ -193,17 +193,17 @@ test('keeps the complete original turn input while bounding only its title', () 
     userRow('2026-08-10T04:00:02.000Z', 'bounds-turn', longPrompt),
   ]);
 
-  const [conversation] = listCodexProjectConversations({ projectRoot, sessionsDir });
-  const [turn] = conversation.turns;
+  const [session] = listCodexProjectSessions({ projectRoot, sessionsDir });
+  const [turn] = session.turns;
 
   assert.equal(turn.userInput, longPrompt);
   assert.equal(turn.userInputs[0].text, longPrompt);
   assert.match(turn.userInput, new RegExp(secret));
-  assert.ok(conversation.title.length <= 120);
-  assert.match(conversation.title, /\u2026$/);
+  assert.ok(session.title.length <= 120);
+  assert.match(session.title, /\u2026$/);
 });
 
-test('accepts only explicit user threads in the conversation picker', () => {
+test('accepts only explicit user threads in the session picker', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-history-subagents-'));
   const projectRoot = path.join(root, 'project');
   const sessionsDir = path.join(root, 'sessions');
@@ -231,7 +231,7 @@ test('accepts only explicit user threads in the conversation picker', () => {
   ]);
 
   assert.deepEqual(
-    listCodexProjectConversations({ projectRoot, sessionsDir }),
+    listCodexProjectSessions({ projectRoot, sessionsDir }),
     [],
   );
 });
@@ -263,12 +263,12 @@ test('keeps the rollout identity from its first session metadata record', () => 
   ]);
 
   assert.deepEqual(
-    listCodexProjectConversations({ projectRoot, sessionsDir }),
+    listCodexProjectSessions({ projectRoot, sessionsDir }),
     [],
   );
 });
 
-test('groups user conversations by project folder and sorts projects by recent activity', () => {
+test('groups user sessions by project folder and sorts projects by recent activity', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-history-project-groups-'));
   const firstProject = path.join(root, 'first-project');
   const secondProject = path.join(root, 'second-project');
@@ -277,7 +277,7 @@ test('groups user conversations by project folder and sorts projects by recent a
   fs.mkdirSync(secondProject, { recursive: true });
   fs.mkdirSync(sessionsDir, { recursive: true });
 
-  const createConversation = (id, projectRoot, updatedAt, threadSource = 'user') => {
+  const createSession = (id, projectRoot, updatedAt, threadSource = 'user') => {
     writeRollout(path.join(sessionsDir, `rollout-${id}.jsonl`), [
       row('2026-08-10T01:00:00.000Z', 'session_meta', {
         id, session_id: id, thread_source: threadSource,
@@ -289,28 +289,28 @@ test('groups user conversations by project folder and sorts projects by recent a
     ]);
   };
 
-  createConversation('first-older', firstProject, '2026-08-10T02:00:00.000Z');
-  createConversation('first-newer', firstProject, '2026-08-10T03:00:00.000Z');
-  createConversation('second-newest', secondProject, '2026-08-10T04:00:00.000Z');
-  createConversation('ignored-subagent', secondProject, '2026-08-10T05:00:00.000Z', 'subagent');
+  createSession('first-older', firstProject, '2026-08-10T02:00:00.000Z');
+  createSession('first-newer', firstProject, '2026-08-10T03:00:00.000Z');
+  createSession('second-newest', secondProject, '2026-08-10T04:00:00.000Z');
+  createSession('ignored-subagent', secondProject, '2026-08-10T05:00:00.000Z', 'subagent');
 
-  const projects = listCodexConversationProjects({ sessionsDir });
+  const projects = listCodexSessionProjects({ sessionsDir });
 
   assert.deepEqual(projects, [
     {
       projectRoot: path.resolve(secondProject),
       updatedAt: '2026-08-10T04:00:00.000Z',
-      conversationCount: 1,
+      sessionCount: 1,
     },
     {
       projectRoot: path.resolve(firstProject),
       updatedAt: '2026-08-10T03:00:00.000Z',
-      conversationCount: 2,
+      sessionCount: 2,
     },
   ]);
   assert.deepEqual(
-    listCodexProjectConversations({ projectRoot: firstProject, sessionsDir })
-      .map(conversation => conversation.id),
+    listCodexProjectSessions({ projectRoot: firstProject, sessionsDir })
+      .map(session => session.id),
     ['first-newer', 'first-older'],
   );
 });
@@ -323,7 +323,7 @@ test('task evidence contains only selected turn behavior with metrics and source
 
   writeRollout(sessionFile, [
     row('2026-08-10T07:00:00.000Z', 'session_meta', {
-      id: 'task-conversation', session_id: 'task-conversation', thread_source: 'user',
+      id: 'task-session', session_id: 'task-session', thread_source: 'user',
     }),
     row('2026-08-10T07:00:01.000Z', 'turn_context', {
       turn_id: 'selected-turn', cwd: projectRoot,
@@ -364,7 +364,7 @@ test('task evidence contains only selected turn behavior with metrics and source
   const evidence = readCodexTaskEvidence({
     projectRoot,
     sessionFile,
-    conversationId: 'task-conversation',
+    sessionId: 'task-session',
     turnIds: ['selected-turn'],
   });
 
@@ -399,16 +399,16 @@ test('reads one rollout through the same project and source rules', async () => 
     userRow('2026-08-10T05:10:02.000Z', 'single-turn', 'Inspect this one file'),
   ]);
 
-  const conversation = readCodexProjectConversation({ projectRoot, sessionFile });
-  assert.equal(conversation.id, 'single-user');
-  assert.deepEqual(conversation.turns.map(turn => turn.id), ['single-turn']);
+  const session = readCodexProjectSession({ projectRoot, sessionFile });
+  assert.equal(session.id, 'single-user');
+  assert.deepEqual(session.turns.map(turn => turn.id), ['single-turn']);
 
   fs.writeFileSync(sessionFile, `${JSON.stringify(row(
     '2026-08-10T05:10:00.000Z',
     'session_meta',
     { session_id: 'single-user' },
   ))}\n`, 'utf8');
-  assert.equal(readCodexProjectConversation({ projectRoot, sessionFile }), null);
+  assert.equal(readCodexProjectSession({ projectRoot, sessionFile }), null);
 });
 
 test('single-rollout reads surface source file failures', () => {
@@ -417,7 +417,7 @@ test('single-rollout reads surface source file failures', () => {
   fs.mkdirSync(projectRoot, { recursive: true });
 
   assert.throws(
-    () => readCodexProjectConversation({
+    () => readCodexProjectSession({
       projectRoot,
       sessionFile: path.join(root, 'missing-rollout.jsonl'),
     }),
@@ -433,18 +433,18 @@ test('ignores bad lines, handles a missing sessions directory and sorts determin
   fs.mkdirSync(sessionsDir, { recursive: true });
 
   assert.deepEqual(
-    listCodexProjectConversations({
+    listCodexProjectSessions({
       projectRoot,
       sessionsDir: path.join(root, 'missing-sessions'),
     }),
     [],
   );
 
-  for (const conversationId of ['conversation-b', 'conversation-a']) {
-    const file = path.join(sessionsDir, `rollout-${conversationId}.jsonl`);
+  for (const sessionId of ['session-b', 'session-a']) {
+    const file = path.join(sessionsDir, `rollout-${sessionId}.jsonl`);
     writeRollout(file, [
       row('2026-08-10T06:00:00.000Z', 'session_meta', {
-        session_id: conversationId, thread_source: 'user',
+        session_id: sessionId, thread_source: 'user',
       }),
       row('2026-08-10T06:00:01.000Z', 'turn_context', {
         turn_id: 'turn-b', cwd: projectRoot,
@@ -458,13 +458,13 @@ test('ignores bad lines, handles a missing sessions directory and sorts determin
     fs.appendFileSync(file, '{not valid json}\n', 'utf8');
   }
 
-  const conversations = listCodexProjectConversations({ projectRoot, sessionsDir });
+  const sessions = listCodexProjectSessions({ projectRoot, sessionsDir });
   assert.deepEqual(
-    conversations.map(conversation => conversation.id),
-    ['conversation-a', 'conversation-b'],
+    sessions.map(session => session.id),
+    ['session-a', 'session-b'],
   );
   assert.deepEqual(
-    conversations[0].turns.map(turn => turn.id),
+    sessions[0].turns.map(turn => turn.id),
     ['turn-a', 'turn-b'],
   );
 });

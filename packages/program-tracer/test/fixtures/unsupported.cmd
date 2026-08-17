@@ -1,1 +1,0 @@
-@echo should-not-run

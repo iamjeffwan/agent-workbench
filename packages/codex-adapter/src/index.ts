@@ -1,20 +1,24 @@
 export type { AgentToolStep, CodexRolloutLine } from './types.js';
-export { parseCodexRollout } from './parse-rollout.js';
+export { parseCodexRollout, parseCodexTimelineEvents } from './parse-rollout.js';
+export type {
+  CodexTimelineEvent,
+  CodexTimelineEventKind,
+} from './types.js';
 export {
-  listCodexConversationProjects,
-  listCodexProjectConversations,
-  readCodexProjectConversation,
+  listCodexSessionProjects,
+  listCodexProjectSessions,
+  readCodexProjectSession,
 } from './history.js';
 export type {
-  CodexConversationProjectSummary,
-  CodexConversationSummary,
+  CodexSessionProjectSummary,
+  CodexSessionSummary,
   CodexHistoryActivity,
   CodexHistoryTurn,
   CodexHistoryTurnStatus,
   CodexHistoryUserInput,
-  ListCodexConversationProjectsOptions,
-  ListCodexProjectConversationsOptions,
-  ReadCodexProjectConversationOptions,
+  ListCodexSessionProjectsOptions,
+  ListCodexProjectSessionsOptions,
+  ReadCodexProjectSessionOptions,
 } from './history.js';
 export { readCodexTaskEvidence } from './task-evidence.js';
 export type {
@@ -34,6 +38,7 @@ export {
   isCodexSessionForProject,
   readCodexSessionMetadata,
   readCodexProjectSteps,
+  readCodexProjectTimelineEvents,
 } from './project-sessions.js';
 export type {
   CodexSessionMetadata,

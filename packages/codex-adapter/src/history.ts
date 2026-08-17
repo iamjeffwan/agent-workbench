@@ -32,7 +32,7 @@ export type CodexHistoryUserInput = {
 
 export type CodexHistoryTurn = {
   id: string;
-  conversationId: string;
+  sessionId: string;
   userInput: string;
   userInputs: CodexHistoryUserInput[];
   startedAt: string | null;
@@ -43,7 +43,7 @@ export type CodexHistoryTurn = {
   activities: CodexHistoryActivity[];
 };
 
-export type CodexConversationSummary = {
+export type CodexSessionSummary = {
   id: string;
   provider: 'codex';
   sessionFile: string;
@@ -55,24 +55,24 @@ export type CodexConversationSummary = {
   turns: CodexHistoryTurn[];
 };
 
-export type ListCodexProjectConversationsOptions = {
+export type ListCodexProjectSessionsOptions = {
   projectRoot: string;
   sessionsDir?: string;
 };
 
-export type ReadCodexProjectConversationOptions = {
+export type ReadCodexProjectSessionOptions = {
   projectRoot: string;
   sessionFile: string;
 };
 
-export type ListCodexConversationProjectsOptions = {
+export type ListCodexSessionProjectsOptions = {
   sessionsDir?: string;
 };
 
-export type CodexConversationProjectSummary = {
+export type CodexSessionProjectSummary = {
   projectRoot: string;
   updatedAt: string | null;
-  conversationCount: number;
+  sessionCount: number;
 };
 
 type MutableTurn = {
@@ -86,7 +86,7 @@ type MutableTurn = {
   seenUserInputIds: Set<string>;
 };
 
-type ParsedConversation = {
+type ParsedSession = {
   id: string;
   sessionFile: string;
   source: string;
@@ -96,45 +96,45 @@ type ParsedConversation = {
 
 /**
  * Read existing Codex rollout files without modifying them and return the
- * conversations that contain at least one turn explicitly assigned to the
+ * sessions that contain at least one turn explicitly assigned to the
  * requested project by turn_context.cwd.
  */
-export function listCodexProjectConversations(
-  options: ListCodexProjectConversationsOptions,
-): CodexConversationSummary[] {
+export function listCodexProjectSessions(
+  options: ListCodexProjectSessionsOptions,
+): CodexSessionSummary[] {
   return findCodexSessions(options.sessionsDir)
-    .map(sessionFile => readCodexProjectConversation({
+    .map(sessionFile => readCodexProjectSession({
       projectRoot: options.projectRoot,
       sessionFile,
     }))
-    .filter((conversation): conversation is CodexConversationSummary => conversation !== null)
-    .sort(compareConversations);
+    .filter((session): session is CodexSessionSummary => session !== null)
+    .sort(compareSessions);
 }
 
-/** Discover the exact turn working directories used by explicit user conversations. */
-export function listCodexConversationProjects(
-  options: ListCodexConversationProjectsOptions = {},
-): CodexConversationProjectSummary[] {
+/** Discover the exact turn working directories used by explicit user sessions. */
+export function listCodexSessionProjects(
+  options: ListCodexSessionProjectsOptions = {},
+): CodexSessionProjectSummary[] {
   const groups = new Map<string, {
     projectRoot: string;
     updatedAt: string | null;
-    conversationIds: Set<string>;
+    sessionIds: Set<string>;
   }>();
 
   for (const sessionFile of findCodexSessions(options.sessionsDir)) {
-    const conversation = parseConversationFile(sessionFile);
-    if (conversation.threadSource.toLowerCase() !== 'user') continue;
+    const session = parseSessionFile(sessionFile);
+    if (session.threadSource.toLowerCase() !== 'user') continue;
 
-    const projectsInConversation = new Map<string, {
+    const projectsInSession = new Map<string, {
       projectRoot: string;
       updatedAt: string | null;
     }>();
-    for (const turn of conversation.turns.values()) {
+    for (const turn of session.turns.values()) {
       if (!turn.cwd) continue;
       const projectRoot = path.resolve(turn.cwd);
       const key = comparablePath(projectRoot);
-      const existing = projectsInConversation.get(key);
-      projectsInConversation.set(key, {
+      const existing = projectsInSession.get(key);
+      projectsInSession.set(key, {
         projectRoot,
         updatedAt: latestTimestamp([
           existing?.updatedAt ?? null,
@@ -144,16 +144,16 @@ export function listCodexConversationProjects(
       });
     }
 
-    for (const [key, project] of projectsInConversation) {
+    for (const [key, project] of projectsInSession) {
       const existing = groups.get(key);
       if (existing) {
         existing.updatedAt = latestTimestamp([existing.updatedAt, project.updatedAt]);
-        existing.conversationIds.add(conversation.id);
+        existing.sessionIds.add(session.id);
       } else {
         groups.set(key, {
           projectRoot: project.projectRoot,
           updatedAt: project.updatedAt,
-          conversationIds: new Set([conversation.id]),
+          sessionIds: new Set([session.id]),
         });
       }
     }
@@ -163,7 +163,7 @@ export function listCodexConversationProjects(
     .map(group => ({
       projectRoot: group.projectRoot,
       updatedAt: group.updatedAt,
-      conversationCount: group.conversationIds.size,
+      sessionCount: group.sessionIds.size,
     }))
     .sort((left, right) => (
       (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '') ||
@@ -172,18 +172,18 @@ export function listCodexConversationProjects(
 }
 
 /** Read one rollout file using the same explicit source and project rules. */
-export function readCodexProjectConversation(
-  options: ReadCodexProjectConversationOptions,
-): CodexConversationSummary | null {
-  const conversation = parseConversationFile(options.sessionFile);
-  if (conversation.threadSource.toLowerCase() !== 'user') return null;
-  return summarizeConversation(conversation, path.resolve(options.projectRoot));
+export function readCodexProjectSession(
+  options: ReadCodexProjectSessionOptions,
+): CodexSessionSummary | null {
+  const session = parseSessionFile(options.sessionFile);
+  if (session.threadSource.toLowerCase() !== 'user') return null;
+  return summarizeSession(session, path.resolve(options.projectRoot));
 }
 
-function parseConversationFile(sessionFile: string): ParsedConversation {
+function parseSessionFile(sessionFile: string): ParsedSession {
   const absoluteFile = path.resolve(sessionFile);
-  const conversation: ParsedConversation = {
-    id: inferConversationId(absoluteFile),
+  const session: ParsedSession = {
+    id: inferSessionId(absoluteFile),
     sessionFile: absoluteFile,
     source: 'unknown',
     threadSource: 'unknown',
@@ -206,13 +206,13 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
 
     if (event.type === 'session_meta') {
       if (!sessionMetadataSeen) {
-        conversation.id =
+        session.id =
           stringOrNull(event.payload.id) ??
           stringOrNull(event.payload.session_id) ??
-          conversation.id;
-        conversation.source = sourceName(event.payload.source) ?? conversation.source;
-        conversation.threadSource =
-          sourceName(event.payload.thread_source) ?? conversation.threadSource;
+          session.id;
+        session.source = sourceName(event.payload.source) ?? session.source;
+        session.threadSource =
+          sourceName(event.payload.thread_source) ?? session.threadSource;
         sessionMetadataSeen = true;
       }
       continue;
@@ -225,7 +225,7 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
         continue;
       }
       currentTurnId = turnId;
-      const turn = ensureTurn(conversation.turns, turnId);
+      const turn = ensureTurn(session.turns, turnId);
       const cwd = stringOrNull(event.payload.cwd);
       turn.cwd = cwd ? path.resolve(cwd) : undefined;
       touchTurn(turn, event.timestamp);
@@ -241,7 +241,7 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
         }
         const turnId = explicitTurnId ?? currentTurnId;
         if (!turnId) continue;
-        const turn = ensureTurn(conversation.turns, turnId);
+        const turn = ensureTurn(session.turns, turnId);
         turn.status = 'running';
         touchTurn(turn, event.payload.started_at ?? event.timestamp);
         continue;
@@ -249,7 +249,7 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
 
       const turnId = explicitTurnId ?? currentTurnId;
       if (!turnId) continue;
-      const turn = ensureTurn(conversation.turns, turnId);
+      const turn = ensureTurn(session.turns, turnId);
       touchTurn(turn, event.payload.completed_at ?? event.timestamp);
 
       if (eventType === 'task_complete') {
@@ -283,7 +283,7 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
     const metadataTurnId = metadataTurnIdFrom(event.payload);
     const turnId = metadataTurnId ?? currentTurnId;
     if (!turnId) continue;
-    const turn = ensureTurn(conversation.turns, turnId);
+    const turn = ensureTurn(session.turns, turnId);
     touchTurn(turn, event.timestamp);
 
     const payloadType = stringOrNull(event.payload.type);
@@ -326,39 +326,39 @@ function parseConversationFile(sessionFile: string): ParsedConversation {
     }
   }
 
-  return conversation;
+  return session;
 }
 
-function summarizeConversation(
-  conversation: ParsedConversation,
+function summarizeSession(
+  session: ParsedSession,
   projectRoot: string,
-): CodexConversationSummary | null {
-  const turns = [...conversation.turns.values()]
+): CodexSessionSummary | null {
+  const turns = [...session.turns.values()]
     .filter(turn => turn.cwd && isPathWithin(turn.cwd, projectRoot))
-    .map(turn => finalizeTurn(turn, conversation.id))
+    .map(turn => finalizeTurn(turn, session.id))
     .sort(compareTurns);
   if (turns.length === 0) return null;
 
   const firstInput = turns.flatMap(turn => turn.userInputs).find(input => input.text);
   return {
-    id: conversation.id,
+    id: session.id,
     provider: 'codex',
-    sessionFile: conversation.sessionFile,
-    source: conversation.source,
-    threadSource: conversation.threadSource,
-    title: titleFrom(firstInput?.text, conversation.id),
+    sessionFile: session.sessionFile,
+    source: session.source,
+    threadSource: session.threadSource,
+    title: titleFrom(firstInput?.text, session.id),
     startedAt: earliestTimestamp(turns.map(turn => turn.startedAt)),
     updatedAt: latestTimestamp(turns.map(turn => turn.updatedAt)),
     turns,
   };
 }
 
-function finalizeTurn(turn: MutableTurn, conversationId: string): CodexHistoryTurn {
+function finalizeTurn(turn: MutableTurn, sessionId: string): CodexHistoryTurn {
   const activities = orderedActivities(turn.activities);
   const combined = turn.userInputs.map(input => input.text).join('\n\n');
   return {
     id: turn.id,
-    conversationId,
+    sessionId,
     userInput: combined,
     userInputs: turn.userInputs,
     startedAt: turn.startedAt,
@@ -605,17 +605,17 @@ function valueText(value: unknown): string {
   }
 }
 
-function titleFrom(value: string | undefined, conversationId: string): string {
-  if (!value) return `Codex conversation ${conversationId.slice(0, 8)}`;
+function titleFrom(value: string | undefined, sessionId: string): string {
+  if (!value) return `Codex session ${sessionId.slice(0, 8)}`;
   const compact = value.replace(/\s+/g, ' ').trim();
   return compact.length <= MAX_TITLE_CHARS
     ? compact
     : `${compact.slice(0, MAX_TITLE_CHARS - 1).trimEnd()}\u2026`;
 }
 
-function compareConversations(
-  left: CodexConversationSummary,
-  right: CodexConversationSummary,
+function compareSessions(
+  left: CodexSessionSummary,
+  right: CodexSessionSummary,
 ): number {
   return (
     (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '') ||
@@ -662,7 +662,7 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-function inferConversationId(sessionFile: string): string {
+function inferSessionId(sessionFile: string): string {
   return path.basename(sessionFile, path.extname(sessionFile)).replace(/^rollout-/, '');
 }
 

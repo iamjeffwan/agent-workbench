@@ -23,7 +23,7 @@ const WALL_TIME_RE = /^Wall time:\s*(.+)$/im;
 const OUTPUT_HEADER_RE = /^Output:\s*$/im;
 const HIT_RE = /^(?:\.?[\\/])?(.+?):(\d+):(.*)$/;
 
-/** Flatten common Codex/Cursor tool output shapes into plain text. */
+/** Flatten common Codex tool output shapes into plain text. */
 export function flattenToolText(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === 'string') return value;

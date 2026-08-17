@@ -38,7 +38,7 @@ export type CodexTaskTokenMetrics = {
 
 export type CodexTaskTurnEvidence = {
   id: string;
-  conversationId: string;
+  sessionId: string;
   cwd: string | null;
   userInput: string;
   startedAt: string | null;
@@ -53,7 +53,7 @@ export type CodexTaskTurnEvidence = {
 };
 
 export type CodexTaskEvidence = {
-  conversationId: string;
+  sessionId: string;
   projectRoot: string;
   sessionFile: string;
   requestedTurnIds: string[];
@@ -64,7 +64,7 @@ export type CodexTaskEvidence = {
 export type ReadCodexTaskEvidenceOptions = {
   projectRoot: string;
   sessionFile: string;
-  conversationId: string;
+  sessionId: string;
   turnIds: string[];
 };
 
@@ -90,7 +90,7 @@ export function readCodexTaskEvidence(
   const selectedTurnIds = new Set(requestedTurnIds);
   const turns = new Map<string, MutableTurnEvidence>();
   let currentTurnId: string | null = null;
-  let sourceConversationId: string | null = null;
+  let sourceSessionId: string | null = null;
   let threadSource: string | null = null;
   let sessionMetadataSeen = false;
 
@@ -108,7 +108,7 @@ export function readCodexTaskEvidence(
 
     if (event.type === 'session_meta') {
       if (!sessionMetadataSeen) {
-        sourceConversationId =
+        sourceSessionId =
           text(event.payload.id) ??
           text(event.payload.session_id) ??
           null;
@@ -121,7 +121,7 @@ export function readCodexTaskEvidence(
     if (event.type === 'turn_context') {
       currentTurnId = text(event.payload.turn_id);
       if (!currentTurnId || !selectedTurnIds.has(currentTurnId)) continue;
-      const turn = ensureTurn(turns, currentTurnId, options.conversationId);
+      const turn = ensureTurn(turns, currentTurnId, options.sessionId);
       const cwd = text(event.payload.cwd);
       turn.cwd = cwd ? path.resolve(cwd) : null;
       touch(turn, event.timestamp);
@@ -131,7 +131,7 @@ export function readCodexTaskEvidence(
     const explicitTurnId = eventTurnId(event);
     const turnId = explicitTurnId ?? currentTurnId;
     if (!turnId || !selectedTurnIds.has(turnId)) continue;
-    const turn = ensureTurn(turns, turnId, options.conversationId);
+    const turn = ensureTurn(turns, turnId, options.sessionId);
     touch(turn, event.timestamp);
 
     if (event.type === 'response_item') {
@@ -141,11 +141,11 @@ export function readCodexTaskEvidence(
     }
   }
 
-  if (sourceConversationId !== options.conversationId) {
-    throw new Error('The rollout does not match the selected conversation.');
+  if (sourceSessionId !== options.sessionId) {
+    throw new Error('The rollout does not match the selected session.');
   }
   if (threadSource?.toLowerCase() !== 'user') {
-    throw new Error('Task evidence can only be read from an explicit user conversation.');
+    throw new Error('Task evidence can only be read from an explicit user session.');
   }
 
   const finalized = requestedTurnIds
@@ -161,7 +161,7 @@ export function readCodexTaskEvidence(
   const foundIds = new Set(finalized.map(turn => turn.id));
 
   return {
-    conversationId: options.conversationId,
+    sessionId: options.sessionId,
     projectRoot,
     sessionFile,
     requestedTurnIds,
@@ -337,13 +337,13 @@ function collectEventMessage(
 function ensureTurn(
   turns: Map<string, MutableTurnEvidence>,
   turnId: string,
-  conversationId: string,
+  sessionId: string,
 ): MutableTurnEvidence {
   const existing = turns.get(turnId);
   if (existing) return existing;
   const created: MutableTurnEvidence = {
     id: turnId,
-    conversationId,
+    sessionId,
     cwd: null,
     userInput: '',
     userInputs: [],

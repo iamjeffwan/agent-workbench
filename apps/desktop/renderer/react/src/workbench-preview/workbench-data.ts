@@ -7,7 +7,7 @@ import type {
 } from './types';
 import { languageForPath, parsePatchFiles } from './patch-files.ts';
 
-export type AgentProvider = 'Codex' | 'Cursor';
+export type AgentProvider = 'Codex';
 
 export interface WorkbenchAdapterState {
   status?: string;
@@ -32,7 +32,7 @@ export interface WorkbenchTimelineNode {
   provider?: string | null;
   source?: string | null;
   generationId?: string | null;
-  conversationId?: string | null;
+  sessionId?: string | null;
   sessionFile?: string | null;
   arguments?: unknown;
   output?: unknown;
@@ -60,6 +60,11 @@ export interface WorkbenchTimelineNode {
   outcome?: string | null;
   appliedChanges?: Record<string, unknown> | null;
   appliedChangeSuccess?: boolean | null;
+  mergedRecords?: WorkbenchTimelineNode[];
+  eventKind?: string;
+  content?: string | null;
+  role?: 'user' | 'assistant' | null;
+  tokenUsage?: Record<string, number | null | undefined> | null;
   [key: string]: unknown;
 }
 
@@ -75,9 +80,61 @@ export interface WorkbenchSourceCoverage {
   unassigned?: number;
 }
 
+export interface WorkbenchReviewFinding {
+  id: string;
+  ruleId: string;
+  severity: 'error' | 'warning' | 'info';
+  title: string;
+  summary: string;
+  status: 'open';
+  eventIds: string[];
+  evidenceIds: string[];
+  expected?: string;
+  actual?: string;
+}
+
+export interface WorkbenchResultReview {
+  status: 'passed' | 'failed' | 'incomplete' | 'unknown';
+  profileId: string | null;
+  checkedEventCount: number;
+  checkedEventIds: string[];
+  checks: WorkbenchValidationCheckResult[];
+  evidence: WorkbenchReviewEvidence[];
+  findings: WorkbenchReviewFinding[];
+}
+
+export interface WorkbenchValidationCheckResult {
+  id: string;
+  label?: string;
+  command?: string;
+  result?: string;
+  kind?: 'command' | 'test' | 'build' | 'lint' | 'playwright' | 'artifact';
+  status: 'passed' | 'failed' | 'incomplete' | 'not_run' | 'unknown';
+  summary?: string;
+  durationMs?: number | null;
+  artifacts?: Array<{
+    path: string;
+    kind: 'screenshot' | 'trace' | 'video' | 'report' | 'other';
+  }>;
+}
+
+export interface WorkbenchReviewEvidence {
+  id: string;
+  kind: string;
+  summary: string;
+  source?: {
+    sessionFile?: string | null;
+    line?: number | null;
+    path?: string | null;
+  };
+}
+
 export interface WorkbenchState {
   projectRoot: string | null;
   turns: WorkbenchTimelineNode[];
+  review: WorkbenchResultReview | null;
+  reviewsByTurn: Record<string, WorkbenchResultReview>;
+  validationResult: WorkbenchValidationResult | null;
   error: string | null;
   observation: Record<string, unknown> | null;
   adapters: Record<string, WorkbenchAdapterState>;
@@ -105,7 +162,7 @@ export type HistoryActivity =
 
 export interface HistoryTurnSummary {
   id: string;
-  conversationId: string;
+  sessionId: string;
   userInput: string;
   startedAt: string | null;
   updatedAt: string | null;
@@ -115,7 +172,7 @@ export interface HistoryTurnSummary {
   activities: HistoryActivity[];
 }
 
-export interface ConversationSummary {
+export interface SessionSummary {
   id: string;
   provider: 'codex';
   title: string;
@@ -125,22 +182,22 @@ export interface ConversationSummary {
   observableTurnCount: number;
 }
 
-export interface ConversationProjectSummary {
+export interface SessionProjectSummary {
   projectRoot: string;
   updatedAt: string | null;
-  conversationCount: number;
+  sessionCount: number;
 }
 
-export interface ConversationDetails extends ConversationSummary {
+export interface SessionDetails extends SessionSummary {
   turns: HistoryTurnSummary[];
 }
 
-export interface TrackedConversationSelection {
+export interface TrackedSessionSelection {
   projectRoot: string | null;
-  conversationIds: string[];
+  sessionIds: string[];
 }
 
-export interface ConversationHistoryResult<T> {
+export interface SessionHistoryResult<T> {
   status: 'ready' | 'unavailable' | 'error';
   source: 'codex-rollout';
   data: T;
@@ -151,7 +208,7 @@ export interface TaskSummary {
   id: string;
   title: string;
   projectRoot: string;
-  conversationId: string;
+  sessionId: string;
   turnIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -230,7 +287,7 @@ export interface TaskRecord extends TaskSummary {
 
 export interface CreateTaskInput {
   projectRoot: string;
-  conversationId: string;
+  sessionId: string;
   turnIds: string[];
   title?: string;
 }
@@ -240,6 +297,110 @@ export interface TaskResult<T> {
   source: 'workbench-task';
   data: T;
   error: string | null;
+}
+
+export interface SyncTaskManifest {
+  version: number;
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  projectFile: string;
+  source: {
+    provider: 'codex';
+    sessionId: string;
+    turnIds: string[];
+  };
+  turns: Array<{
+    id: string;
+    sessionId: string;
+    cwd: string | null;
+    userInput: string;
+    startedAt: string | null;
+    updatedAt: string | null;
+    status: HistoryTurnSummary['status'];
+    metrics: Record<string, unknown>;
+    eventCount: number;
+  }>;
+  eventCount: number;
+  privacy: {
+    redacted: boolean;
+    absolutePathsRemoved: boolean;
+    rawSessionIncluded: boolean;
+  };
+}
+
+export interface WorkbenchValidationResult {
+  version: 1;
+  profileId: string;
+  status: 'passed' | 'failed' | 'incomplete' | 'unknown';
+  checks: WorkbenchValidationCheckResult[];
+  generatedAt?: string;
+  sessionId?: string;
+  generationId?: string;
+}
+
+export interface SyncEvidenceRecord {
+  version: number;
+  taskId: string;
+  sessionId: string;
+  turnId: string;
+  sequence: number;
+  event: {
+    kind: string;
+    timestamp: string | null;
+    name: string;
+    detail: string;
+    callId: string | null;
+    success: boolean | null;
+  };
+  evidence: {
+    sourceLine: number | null;
+  };
+}
+
+export interface SyncTaskRecord extends SyncTaskManifest {
+  evidence: SyncEvidenceRecord[];
+}
+
+export interface SyncResult<T> {
+  status: 'ready' | 'error';
+  source: 'workbench-sync';
+  data: T;
+  error: string | null;
+}
+
+export interface RepositoryChange {
+  path: string;
+  status: string;
+  kind: 'modified' | 'deleted' | 'untracked';
+  blocked: boolean;
+}
+
+export interface RepositoryStatus {
+  root: string;
+  branch: string;
+  remoteName: string | null;
+  remoteUrl: string | null;
+  remote: string | null;
+  changes: RepositoryChange[];
+  clean: boolean;
+  localAhead: number;
+  remoteAhead: number;
+  diverged: boolean;
+}
+
+export interface RepositoryResult<T> {
+  status: 'ready' | 'error';
+  source: 'workbench-sync';
+  data: T;
+  error: string | null;
+}
+
+export interface PublishRepositoryInput {
+  projectRoot: string;
+  selectedPaths?: string[];
+  message?: string;
 }
 
 export type ProjectAssetCategoryId =
@@ -382,16 +543,23 @@ export interface WorkbenchBridge {
   refresh(): Promise<WorkbenchState>;
   startLiveObservation(): Promise<WorkbenchState>;
   useHistoryObservation(): Promise<WorkbenchState>;
-  listConversationProjects(): Promise<ConversationHistoryResult<ConversationProjectSummary[]>>;
-  listConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
-  readConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
-  getTrackedSelection(projectRoot: string | null): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
-  setTrackedSelection(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  listSessionProjects(): Promise<SessionHistoryResult<SessionProjectSummary[]>>;
+  listSessions(projectRoot: string): Promise<SessionHistoryResult<SessionSummary[]>>;
+  readSession(projectRoot: string, sessionId: string): Promise<SessionHistoryResult<SessionDetails | null>>;
+  getTrackedSelection(projectRoot: string | null): Promise<SessionHistoryResult<TrackedSessionSelection>>;
+  setTrackedSelection(projectRoot: string, sessionIds: string[]): Promise<SessionHistoryResult<TrackedSessionSelection>>;
   listTasks(projectRoot?: string | null): Promise<TaskResult<TaskSummary[]>>;
   readTask(taskId: string): Promise<TaskResult<TaskRecord | null>>;
   createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
   discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
+  readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
+  addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
+  getRepositoryStatus(projectRoot?: string | null): Promise<RepositoryResult<RepositoryStatus | null>>;
+  pullRepository(projectRoot?: string | null): Promise<RepositoryResult<RepositoryStatus | null>>;
+  publishRepository(input: PublishRepositoryInput): Promise<RepositoryResult<RepositoryStatus | null>>;
+  createGithubRepository(input: { projectRoot: string; name: string; privateRepository?: boolean }): Promise<RepositoryResult<RepositoryStatus | null>>;
   onTaskChanged(handler: (change: TaskChangeEvent) => void): () => void;
   listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
@@ -468,12 +636,12 @@ export function mapWorkbenchTurnsToRecords(
     }
     if (turn.type !== 'turn') continue;
     const turnProvider = providerFrom(turn);
-    const nodes = turn.children ?? [];
+    const nodes = mergeContentNodes(turn.children ?? []);
     const topLevel: AgentOperation[] = [];
     const positions = new Map<string, number>();
 
     nodes.forEach((node, position) => {
-      if (node.type === 'agent_tool') {
+      if (node.type === 'agent_tool' || node.type === 'event') {
         if (node.display === false) return;
         if (isReadTool(node.name)) return;
         const operation = mapAgentOperation(node, turn, projectRoot, turnProvider);
@@ -517,14 +685,15 @@ function mapAgentOperation(
   let embeddedChanges: CodeChanges | undefined;
   const appliedChanges = appliedChangesFor(node);
   if (appliedChanges) embeddedChanges = mapAppliedChanges(node, appliedChanges, id, projectRoot);
-  const writeContent = provider === 'Cursor' ? writeContentFor(node) : null;
+  const writeContent = null;
   if (!embeddedChanges && writeContent) embeddedChanges = mapWriteContent(node, writeContent, id, projectRoot);
-  const replaceContent = provider === 'Cursor' ? strReplaceContentFor(node) : null;
+  const replaceContent = null;
   if (!embeddedChanges && replaceContent) {
     embeddedChanges = mapStrReplaceContent(node, replaceContent, id, projectRoot);
   }
 
   const row = baseRow(node, 'operation', method, provider, projectRoot, args);
+  if (isContentMethod(method)) row.target = '';
   const editPath = editPathFor(node, args, embeddedChanges, projectRoot);
   if (method === 'EDIT' && editPath) {
     row.scope = lastPathSegment(editPath.relative);
@@ -542,6 +711,7 @@ function mapAgentOperation(
     arguments: args,
     result: node.output,
     error: errorText(node),
+    content: contentForNode(node),
     rawRecord: rawRecord(node, turn),
     children,
     embeddedChanges,
@@ -756,7 +926,7 @@ export function mapRecordedChangesForTurn(
     projectFiles,
     rawRecord: {
       attribution: 'recorded-patches',
-      conversationId: turn.conversationId ?? null,
+      sessionId: turn.sessionId ?? null,
       turnId: turn.generationId ?? null,
       patchOperationIds: patches.map(item => item.node.id),
     },
@@ -989,6 +1159,46 @@ function methodForTool(name: string | undefined): string {
   return compactMethod(name);
 }
 
+const CONTENT_METHODS = new Set(['REASONING', 'USER INPUT', 'ASSISTANT']);
+const MERGEABLE_CONTENT_METHODS = new Set(['REASONING', 'ASSISTANT']);
+
+function isContentMethod(method: string): boolean {
+  return CONTENT_METHODS.has(method);
+}
+
+function contentForNode(node: WorkbenchTimelineNode): string | undefined {
+  if (!isContentMethod(node.method || methodForTool(node.name))) return undefined;
+  if (typeof node.content !== 'string') return undefined;
+  const content = node.content.trim();
+  return content || undefined;
+}
+
+function mergeContentNodes(nodes: WorkbenchTimelineNode[]): WorkbenchTimelineNode[] {
+  const merged: WorkbenchTimelineNode[] = [];
+  for (const node of nodes) {
+    const method = node.method || methodForTool(node.name);
+    const previous = merged.at(-1);
+    const previousMethod = previous?.method || (previous ? methodForTool(previous.name) : '');
+    if (!previous || !MERGEABLE_CONTENT_METHODS.has(method) || previousMethod !== method) {
+      merged.push(node);
+      continue;
+    }
+
+    const previousContent = contentForNode(previous);
+    const currentContent = contentForNode(node);
+    merged[merged.length - 1] = {
+      ...previous,
+      endedAt: node.endedAt ?? previous.endedAt,
+      content: [previousContent, currentContent].filter(Boolean).join('\n\n'),
+      mergedRecords: [
+        ...(previous.mergedRecords ?? [previous]),
+        node,
+      ],
+    };
+  }
+  return merged;
+}
+
 function isReadTool(name: string | undefined): boolean {
   return (name ?? '').toLowerCase() === 'read';
 }
@@ -1040,7 +1250,6 @@ function outputFailed(value: unknown): boolean {
 
 function providerFrom(node: WorkbenchTimelineNode, fallback: AgentProvider = 'Codex'): AgentProvider {
   const value = `${node.provider ?? ''} ${node.source ?? ''}`.toLowerCase();
-  if (value.includes('cursor')) return 'Cursor';
   if (value.includes('codex')) return 'Codex';
   return fallback;
 }
@@ -1052,7 +1261,7 @@ function colorFor(status: string, provider: AgentProvider, kind: PreviewRecord['
     return '#f1971f';
   }
   if (kind === 'call') return '#5b96a3';
-  return provider === 'Cursor' ? '#7547d8' : '#6284fa';
+  return '#6284fa';
 }
 
 export function isErrorStatus(status: string | undefined): boolean {
@@ -1061,15 +1270,27 @@ export function isErrorStatus(status: string | undefined): boolean {
 }
 
 function scopedId(turn: WorkbenchTimelineNode, node: WorkbenchTimelineNode, provider: AgentProvider): string {
-  const session = turn.conversationId || turn.generationId || 'session';
+  const session = turn.sessionId || turn.generationId || 'session';
   return `${provider.toLowerCase()}:${session}:${node.id}`;
 }
 
 function rawRecord(node: WorkbenchTimelineNode, turn: WorkbenchTimelineNode): Record<string, unknown> {
+  const mergedRecords = node.mergedRecords;
   return {
     ...node,
+    ...(mergedRecords ? {
+      content: contentForNode(node),
+      mergedRecords: mergedRecords.map(record => ({
+        ...record,
+        session: {
+          sessionId: record.sessionId ?? turn.sessionId ?? null,
+          generationId: record.generationId ?? turn.generationId ?? null,
+          sessionFile: record.sessionFile ?? null,
+        },
+      })),
+    } : {}),
     session: {
-      conversationId: node.conversationId ?? turn.conversationId ?? null,
+      sessionId: node.sessionId ?? turn.sessionId ?? null,
       generationId: node.generationId ?? turn.generationId ?? null,
       sessionFile: node.sessionFile ?? null,
     },
@@ -1105,6 +1326,7 @@ function errorText(node: WorkbenchTimelineNode): string | undefined {
 }
 
 function targetFor(node: WorkbenchTimelineNode, args: Record<string, unknown>): string {
+  if (typeof node.content === 'string' && node.content.trim()) return oneLine(node.content);
   for (const key of ['command', 'cmd', 'path', 'file', 'filePath', 'query', 'pattern', 'prompt', 'task']) {
     const value = args[key];
     if (typeof value === 'string' && value.trim()) return oneLine(value);

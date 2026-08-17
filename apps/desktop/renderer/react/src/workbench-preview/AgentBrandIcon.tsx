@@ -1,5 +1,4 @@
 import codexIcon from '@lobehub/icons-static-svg/icons/codex.svg';
-import cursorIcon from '@lobehub/icons-static-svg/icons/cursor.svg';
 import { styled } from '../upstream/theme';
 import type { AgentOperation } from './types';
 
@@ -16,7 +15,7 @@ export function AgentBrandIcon({ provider, size = 18 }: {
 }) {
   return (
     <BrandImage
-      src={provider === 'Codex' ? codexIcon : cursorIcon}
+      src={codexIcon}
       $size={size}
       alt=""
       aria-hidden="true"

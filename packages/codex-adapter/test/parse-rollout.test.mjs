@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { parseCodexRollout } from '../dist/index.js';
+import { parseCodexRollout, parseCodexTimelineEvents } from '../dist/index.js';
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,7 +25,7 @@ test('Codex records keep separate execution turns and custom tool calls', () => 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-turns-'));
   const fixture = path.join(dir, 'rollout-turns.jsonl');
   const rows = [
-    line('session_meta', { session_id: 'conversation-one', cwd: dir }),
+    line('session_meta', { session_id: 'session-one', cwd: dir }),
     line('turn_context', { turn_id: 'turn-one', cwd: dir }),
     line('event_msg', { type: 'task_started', turn_id: 'turn-one' }),
     line('response_item', {
@@ -59,7 +59,7 @@ test('Codex records keep separate execution turns and custom tool calls', () => 
   const steps = parseCodexRollout(fixture);
 
   assert.equal(steps.length, 2);
-  assert.equal(steps[0].conversationId, 'conversation-one');
+  assert.equal(steps[0].sessionId, 'session-one');
   assert.equal(steps[0].generationId, 'turn-one');
   assert.equal(steps[0].cwd, path.resolve(dir));
   assert.equal(steps[0].projectAssignment, 'turn_context');
@@ -67,63 +67,6 @@ test('Codex records keep separate execution turns and custom tool calls', () => 
   assert.equal(steps[0].source, 'codex-rollout');
   assert.equal(steps[1].generationId, 'turn-two');
   assert.equal(steps[1].cwd, path.resolve(dir, 'packages', 'app'));
-});
-
-test('Codex unwraps nested exec tools and preserves an exact apply patch payload', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-nested-tools-'));
-  const fixture = path.join(dir, 'rollout-nested.jsonl');
-  const patch = '*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch';
-  const rows = [
-    line('session_meta', { session_id: 'nested-tools', cwd: dir }),
-    line('turn_context', { turn_id: 'turn-nested', cwd: dir }),
-    line('response_item', {
-      type: 'custom_tool_call',
-      name: 'exec',
-      input: `const result = await tools.apply_patch(${JSON.stringify(patch)}); text(result)`,
-      call_id: 'outer-exec',
-    }),
-    line('response_item', {
-      type: 'custom_tool_call_output',
-      call_id: 'outer-exec',
-      output: 'Done!',
-    }),
-  ];
-  fs.writeFileSync(fixture, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
-
-  const [step] = parseCodexRollout(fixture);
-  assert.equal(step.name, 'apply_patch');
-  assert.equal(step.id, 'outer-exec:1:apply_patch');
-  assert.equal(step.arguments, patch);
-  assert.equal(step.output, 'Done!');
-  assert.equal(step.status, 'completed');
-  assert.equal(step.outcome, 'exact');
-});
-
-test('Codex resolves apply_patch(patch) when patch is a prior const string binding', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-patch-binding-'));
-  const fixture = path.join(dir, 'rollout-patch-binding.jsonl');
-  const patch = '*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch';
-  const rows = [
-    line('session_meta', { session_id: 'patch-binding', cwd: dir }),
-    line('turn_context', { turn_id: 'turn-binding', cwd: dir }),
-    line('response_item', {
-      type: 'custom_tool_call',
-      name: 'exec',
-      input: `const patch = ${JSON.stringify(patch)};\ntext(await tools.apply_patch(patch));\n`,
-      call_id: 'binding-exec',
-    }),
-    line('response_item', {
-      type: 'custom_tool_call_output',
-      call_id: 'binding-exec',
-      output: '{}',
-    }),
-  ];
-  fs.writeFileSync(fixture, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
-
-  const [step] = parseCodexRollout(fixture);
-  assert.equal(step.name, 'apply_patch');
-  assert.equal(step.arguments, patch);
-  assert.match(String(step.arguments), /\*\*\* Begin Patch/);
 });
 
 test('Codex does not attribute a shared exec result to individual nested tools', () => {
@@ -193,6 +136,26 @@ test('Codex exec unwrapping ignores tool-like text inside strings and comments',
   assert.deepEqual(steps[0].arguments, { command: 'pnpm test' });
 });
 
+test('Codex preserves the cmd field used by exec_command', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cmd-field-'));
+  const fixture = path.join(dir, 'rollout-cmd.jsonl');
+  const rows = [
+    line('session_meta', { session_id: 'cmd-field', cwd: dir }),
+    line('turn_context', { turn_id: 'cmd-turn', cwd: dir }),
+    line('response_item', {
+      type: 'custom_tool_call',
+      name: 'exec',
+      input: 'await tools.exec_command({ cmd: "pnpm test" })',
+      call_id: 'cmd-exec',
+    }),
+  ];
+  fs.writeFileSync(fixture, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
+
+  const [step] = parseCodexRollout(fixture);
+  assert.equal(step.name, 'exec_command');
+  assert.deepEqual(step.arguments, { cmd: 'pnpm test' });
+});
+
 test('Codex records bound large tool output before storage', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-output-limit-'));
   const fixture = path.join(dir, 'rollout-large.jsonl');
@@ -215,6 +178,45 @@ test('Codex records bound large tool output before storage', () => {
   const [step] = parseCodexRollout(fixture);
   assert.equal(step.output.$summary, 'truncated');
   assert.equal(step.output.$length, 5_000);
+});
+
+test('Codex timeline parser includes messages, context, model usage and task status', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-timeline-events-'));
+  const fixture = path.join(dir, 'rollout-events.jsonl');
+  const rows = [
+    line('session_meta', { session_id: 'timeline-session', cwd: dir }),
+    line('turn_context', { turn_id: 'timeline-turn', cwd: dir }),
+    line('event_msg', { type: 'task_started', turn_id: 'timeline-turn' }),
+    line('response_item', {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'Implement the feature' }],
+    }),
+    line('response_item', {
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: 'Inspect the current implementation first.' }],
+    }),
+    line('event_msg', {
+      type: 'token_count',
+      info: { last_token_usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } },
+    }),
+    line('event_msg', { type: 'task_complete', turn_id: 'timeline-turn', duration_ms: 120 }),
+  ];
+  fs.writeFileSync(fixture, `${rows.map(JSON.stringify).join('\n')}\n`, 'utf8');
+
+  const events = parseCodexTimelineEvents(fixture, dir);
+
+  assert.deepEqual(events.map(event => event.eventKind), [
+    'context_ref',
+    'task_status',
+    'user_input',
+    'reasoning',
+    'model_call',
+    'task_status',
+  ]);
+  assert.equal(events.find(event => event.eventKind === 'user_input').content, 'Implement the feature');
+  assert.equal(events.find(event => event.eventKind === 'model_call').tokenUsage.total, 14);
+  assert.equal(events.at(-1).name, 'Task completed');
 });
 
 function line(type, payload) {

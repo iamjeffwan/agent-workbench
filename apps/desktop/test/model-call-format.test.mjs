@@ -18,7 +18,7 @@ const { parseModelCallEvents } = await import(
 
 test('presents task model calls as structured prompts, evidence and responses', () => {
   const evidence = {
-    conversationId: 'conversation-one',
+    sessionId: 'session-one',
     projectRoot: 'F:\\agent-workbench',
     requestedTurnIds: ['turn-one'],
     missingTurnIds: [],

@@ -125,6 +125,10 @@ test('formal desktop entry loads the connected workbench UI', () => {
   assert.equal(rootPackage.scripts['desktop:ui-preview'], 'pnpm --filter @agent-workbench/desktop ui-preview');
   assert.match(desktopPackage.scripts['ui-preview'], /--ui-preview/);
   assert.match(runner, /\?mode=workbench-preview/);
+  assert.match(runner, /process\.once\('SIGINT'/);
+  assert.match(runner, /process\.once\('SIGTERM'/);
+  assert.match(runner, /taskkill/);
+  assert.match(runner, /'\/T', '\/F'/);
   assert.match(app, /<PreviewApp page=\{selectedPage\}/);
   assert.match(app, /workbenchMode/);
   assert.doesNotMatch(app, /<ViewPage/);
@@ -161,7 +165,7 @@ test('preview list uses the bottom toolbar, layered operations and child-only in
   assert.ok(activity.indexOf('<Footer>') < activity.indexOf('<Grid role="grid">'));
   assert.doesNotMatch(activity, /background-image:\s*linear-gradient/);
   assert.match(brandIcon, /icons\/codex\.svg/);
-  assert.match(brandIcon, /icons\/cursor\.svg/);
+  assert.doesNotMatch(brandIcon, /icons\/cursor\.svg/);
 });
 
 test('saved task documents render markdown instead of plain preformatted text', () => {
@@ -181,4 +185,29 @@ test('saved task documents render markdown instead of plain preformatted text', 
   assert.equal(packageJson.dependencies['remark-gfm'], '4.0.1');
   assert.match(library, /<MarkdownDocument markdown=\{current\.document\.markdown\}/);
   assert.match(markdownDocument, /<ReactMarkdown remarkPlugins=\{\[remarkGfm\]\}/);
+});
+
+test('history owns session tracking and synchronization entry points', () => {
+  const history = fs.readFileSync(
+    path.join(desktopRoot, 'renderer/react/src/workbench-preview/HistoryModal.tsx'),
+    'utf8',
+  );
+  const preview = fs.readFileSync(
+    path.join(desktopRoot, 'renderer/react/src/workbench-preview/PreviewApp.tsx'),
+    'utf8',
+  );
+
+  assert.match(history, /Sessions/);
+  assert.match(history, /Sync/);
+  assert.match(history, /listSyncTasks/);
+  assert.match(history, /Track/);
+  assert.match(preview, /<SyncTaskInspector/);
+  assert.match(preview, /onHistory=\{/);
+  assert.doesNotMatch(
+    fs.readFileSync(
+      path.join(desktopRoot, 'renderer/react/src/workbench-preview/AssetsPage.tsx'),
+      'utf8',
+    ),
+    /Sync task|Synchronized task/i,
+  );
 });

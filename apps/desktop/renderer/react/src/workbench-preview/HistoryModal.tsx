@@ -4,6 +4,7 @@ import {
   CaretRight,
   Check,
   ClipboardText,
+  CloudArrowUp,
   MagnifyingGlass,
   SpinnerGap,
   WarningCircle,
@@ -12,15 +13,18 @@ import {
 import { styled, css } from '../upstream/theme';
 import { AgentBrandIcon } from './AgentBrandIcon';
 import type {
-  ConversationDetails,
-  ConversationHistoryResult,
-  ConversationSummary,
+  SessionDetails,
+  SessionHistoryResult,
+  SessionSummary,
   CreateTaskInput,
   HistoryTurnSummary,
   TaskRecord,
   TaskResult,
   TaskSummary,
-  TrackedConversationSelection,
+  TrackedSessionSelection,
+  SyncResult,
+  SyncTaskManifest,
+  SyncTaskRecord,
 } from './workbench-data';
 
 const Overlay = styled.div`
@@ -100,6 +104,9 @@ const BackButton = styled(IconButton)`
 `;
 
 const Toolbar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 9px;
   padding: 9px 11px;
   border-bottom: 1px solid ${p => p.theme.containerBorder};
   background: ${p => p.theme.mainLowlightBackground};
@@ -141,7 +148,7 @@ const SearchField = styled.label`
   }
 `;
 
-const ConversationContext = styled.div`
+const SessionContext = styled.div`
   min-height: 64px;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
@@ -230,7 +237,7 @@ const Day = styled.section`
   }
 `;
 
-const ConversationRow = styled.div<{ $current: boolean }>`
+const SessionRow = styled.div<{ $current: boolean }>`
   width: 100%;
   min-height: 64px;
   margin: 0 0 5px;
@@ -254,7 +261,7 @@ const ConversationRow = styled.div<{ $current: boolean }>`
   `}
 `;
 
-const ConversationButton = styled.button`
+const SessionButton = styled.button`
   min-width: 0;
   min-height: 64px;
   padding: 9px 8px 9px 12px;
@@ -275,7 +282,7 @@ const ConversationButton = styled.button`
   }
 `;
 
-const ConversationTrackButton = styled.button<{ $tracked: boolean }>`
+const SessionTrackButton = styled.button<{ $tracked: boolean }>`
   min-width: 58px;
   min-height: 28px;
   margin-right: 9px;
@@ -293,12 +300,12 @@ const ConversationTrackButton = styled.button<{ $tracked: boolean }>`
   &:focus-visible { outline: 1px dotted ${p => p.theme.popColor}; }
 `;
 
-const ConversationCopy = styled.span`
+const SessionCopy = styled.span`
   min-width: 0;
   display: block;
 `;
 
-const ConversationTitle = styled.strong`
+const SessionTitle = styled.strong`
   display: block;
   overflow: hidden;
   font-size: 14px;
@@ -307,7 +314,7 @@ const ConversationTitle = styled.strong`
   white-space: nowrap;
 `;
 
-const ConversationMeta = styled.span`
+const SessionMeta = styled.span`
   display: block;
   margin-top: 3px;
   overflow: hidden;
@@ -318,12 +325,37 @@ const ConversationMeta = styled.span`
   white-space: nowrap;
 `;
 
-const ConversationTime = styled.time`
+const SessionTime = styled.time`
   color: ${p => p.theme.mainLowlightColor};
   font-family: ${p => p.theme.monoFontFamily};
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+`;
+
+const SyncTaskRow = styled.button`
+  width: 100%;
+  min-height: 70px;
+  margin: 0 0 5px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 3px;
+  background: ${p => p.theme.mainBackground};
+  color: ${p => p.theme.mainColor};
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.13);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover, &:focus-visible {
+    outline: none;
+    background: ${p => p.theme.highlightBackground};
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.2);
+  }
 `;
 
 const TurnButton = styled.button<{
@@ -518,14 +550,46 @@ const CreateTaskButton = styled(TrackToggle)`
   white-space: nowrap;
 `;
 
+const CategoryTabs = styled.div`
+  display: flex;
+  flex: 0 0 auto;
+  border: 1px solid ${p => p.theme.containerBorder};
+  border-radius: 3px;
+  overflow: hidden;
+`;
+
+const CategoryButton = styled.button<{ $active: boolean }>`
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 0;
+  border-right: 1px solid ${p => p.theme.containerBorder};
+  background: ${p => p.$active ? p.theme.highlightBackground : p.theme.inputBackground};
+  color: ${p => p.$active ? p.theme.mainColor : p.theme.mainLowlightColor};
+  font: inherit;
+  font-size: 12px;
+  font-weight: ${p => p.$active ? 700 : 400};
+  cursor: pointer;
+
+  &:last-child { border-right: 0; }
+  &:focus-visible { outline: 1px dotted ${p => p.theme.popColor}; outline-offset: -2px; }
+`;
+
+const SyncButton = styled(CreateTaskButton)`
+  border-color: ${p => p.theme.highlightColor};
+`;
+
 interface HistoryModalProps {
   currentProjectRoot: string | null;
   selectedTurns: HistoryTurnSummary[];
-  listConversations(projectRoot: string): Promise<ConversationHistoryResult<ConversationSummary[]>>;
-  readConversation(projectRoot: string, conversationId: string): Promise<ConversationHistoryResult<ConversationDetails | null>>;
-  getTrackedSelection(projectRoot: string): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
-  onTrackedConversations(projectRoot: string, conversationIds: string[]): Promise<ConversationHistoryResult<TrackedConversationSelection>>;
+  listSessions(projectRoot: string): Promise<SessionHistoryResult<SessionSummary[]>>;
+  readSession(projectRoot: string, sessionId: string): Promise<SessionHistoryResult<SessionDetails | null>>;
+  getTrackedSelection(projectRoot: string): Promise<SessionHistoryResult<TrackedSessionSelection>>;
+  onTrackedSessions(projectRoot: string, sessionIds: string[]): Promise<SessionHistoryResult<TrackedSessionSelection>>;
   createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
+  addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
+  listSyncTasks(projectRoot: string): Promise<SyncResult<SyncTaskManifest[]>>;
+  readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
+  onOpenSyncTask(task: SyncTaskRecord): void | Promise<void>;
   taskUpdates: TaskSummary[];
   onSelected(turns: HistoryTurnSummary[]): void;
   onClose(): void;
@@ -534,11 +598,15 @@ interface HistoryModalProps {
 export function HistoryModal({
   currentProjectRoot,
   selectedTurns,
-  listConversations,
-  readConversation,
+  listSessions,
+  readSession,
   getTrackedSelection,
-  onTrackedConversations,
+  onTrackedSessions,
   createTask,
+  addTaskToSync,
+  listSyncTasks,
+  readSyncTask,
+  onOpenSyncTask,
   taskUpdates,
   onSelected,
   onClose,
@@ -546,13 +614,19 @@ export function HistoryModal({
   const [activeProject, setActiveProject] = React.useState<{ projectRoot: string } | null>(
     currentProjectRoot ? { projectRoot: currentProjectRoot } : null,
   );
-  const [conversations, setConversations] = React.useState<ConversationSummary[]>([]);
-  const [activeTrackedConversationIds, setActiveTrackedConversationIds] = React.useState<string[]>([]);
-  const [activeConversation, setActiveConversation] = React.useState<ConversationSummary | null>(null);
-  const [details, setDetails] = React.useState<ConversationDetails | null>(null);
+  const [sessions, setSessions] = React.useState<SessionSummary[]>([]);
+  const [activeTrackedSessionIds, setActiveTrackedSessionIds] = React.useState<string[]>([]);
+  const [activeSession, setActiveSession] = React.useState<SessionSummary | null>(null);
+  const [details, setDetails] = React.useState<SessionDetails | null>(null);
+  const [historySection, setHistorySection] = React.useState<'sessions' | 'sync'>('sessions');
+  const [syncTasks, setSyncTasks] = React.useState<SyncTaskManifest[]>([]);
+  const [syncLoading, setSyncLoading] = React.useState(false);
+  const [syncError, setSyncError] = React.useState<string | null>(null);
   const [taskTitle, setTaskTitle] = React.useState('');
   const [creatingTask, setCreatingTask] = React.useState(false);
   const [createdTask, setCreatedTask] = React.useState<TaskSummary | null>(null);
+  const [syncingTask, setSyncingTask] = React.useState(false);
+  const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState('');
   const [loadingList, setLoadingList] = React.useState(true);
   const [loadingTurns, setLoadingTurns] = React.useState(false);
@@ -572,26 +646,32 @@ export function HistoryModal({
     setError(null);
     if (!currentProjectRoot) {
       setActiveProject(null);
-      setConversations([]);
+      setSessions([]);
+      setSyncTasks([]);
+      setHistorySection('sessions');
       setLoadingList(false);
       setError('Open a project using the project button before browsing history.');
       return () => { active = false; };
     }
     setActiveProject({ projectRoot: currentProjectRoot });
+    setHistorySection('sessions');
     void Promise.all([
-      listConversations(currentProjectRoot),
+      listSessions(currentProjectRoot),
       getTrackedSelection(currentProjectRoot),
-    ]).then(([conversationResult, trackedResult]) => {
+      listSyncTasks(currentProjectRoot),
+    ]).then(([sessionResult, trackedResult, syncResult]) => {
       if (!active) return;
-      setConversations(conversationResult.data);
-      if (trackedResult.status === 'ready') setActiveTrackedConversationIds(trackedResult.data.conversationIds);
-      if (conversationResult.status !== 'ready') setError(conversationResult.error ?? 'Project conversations could not be read.');
-      else if (trackedResult.status !== 'ready') setError(trackedResult.error ?? 'Tracked conversations could not be read.');
+      setSessions(sessionResult.data);
+      setSyncTasks(syncResult.data);
+      if (trackedResult.status === 'ready') setActiveTrackedSessionIds(trackedResult.data.sessionIds);
+      if (sessionResult.status !== 'ready') setError(sessionResult.error ?? 'Project sessions could not be read.');
+      else if (trackedResult.status !== 'ready') setError(trackedResult.error ?? 'Tracked sessions could not be read.');
+      else if (syncResult.status !== 'ready') setSyncError(syncResult.error ?? 'Synchronized tasks could not be read.');
     }).finally(() => {
       if (active) setLoadingList(false);
     });
     return () => { active = false; };
-  }, [currentProjectRoot, getTrackedSelection, listConversations]);
+  }, [currentProjectRoot, getTrackedSelection, listSessions, listSyncTasks]);
 
   React.useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -601,13 +681,13 @@ export function HistoryModal({
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
-  const filteredConversations = React.useMemo(() => {
+  const filteredSessions = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return [...conversations]
-      .filter(conversation => !needle || [conversation.title, conversation.id]
+    return [...sessions]
+      .filter(session => !needle || [session.title, session.id]
         .join(' ').toLowerCase().includes(needle))
       .sort((left, right) => timestamp(right.updatedAt) - timestamp(left.updatedAt));
-  }, [conversations, query]);
+  }, [sessions, query]);
 
   const filteredTurns = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -617,23 +697,31 @@ export function HistoryModal({
       .sort((left, right) => timestamp(right.startedAt) - timestamp(left.startedAt));
   }, [details, query]);
 
-  const openConversation = async (conversation: ConversationSummary) => {
+  const filteredSyncTasks = React.useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return [...syncTasks]
+      .filter(task => !needle || [task.title, task.projectFile, task.source.sessionId]
+        .join(' ').toLowerCase().includes(needle))
+      .sort((left, right) => timestamp(right.updatedAt) - timestamp(left.updatedAt));
+  }, [query, syncTasks]);
+
+  const openSession = async (session: SessionSummary) => {
     if (!activeProject) return;
     const request = ++readRequest.current;
-    const selectedConversationId = selectedTurns[0]?.conversationId;
-    setActiveConversation(conversation);
+    const selectedSessionId = selectedTurns[0]?.sessionId;
+    setActiveSession(session);
     setDetails(null);
     setQuery('');
     setError(null);
     setLoadingTurns(true);
-    const result = await readConversation(activeProject.projectRoot, conversation.id);
+    const result = await readSession(activeProject.projectRoot, session.id);
     if (readRequest.current !== request) return;
     setLoadingTurns(false);
     if (result.status !== 'ready' || !result.data) {
-      setError(result.error ?? 'This conversation could not be read.');
+      setError(result.error ?? 'This session could not be read.');
       return;
     }
-    if (selectedConversationId && selectedConversationId !== conversation.id) onSelected([]);
+    if (selectedSessionId && selectedSessionId !== session.id) onSelected([]);
     setDetails(result.data);
   };
 
@@ -641,8 +729,8 @@ export function HistoryModal({
     readRequest.current += 1;
     setQuery('');
     setError(null);
-    if (activeConversation) {
-      setActiveConversation(null);
+    if (activeSession) {
+      setActiveSession(null);
       setDetails(null);
       setLoadingTurns(false);
       return;
@@ -650,37 +738,37 @@ export function HistoryModal({
   };
 
   const toggleTurn = (turn: HistoryTurnSummary) => {
-    if (!activeTrackedConversationIds.includes(turn.conversationId)) return;
+    if (!activeTrackedSessionIds.includes(turn.sessionId)) return;
     const isSelected = selectedTurns.some(selected => sameTurn(selected, turn));
     const next = isSelected
       ? selectedTurns.filter(selected => !sameTurn(selected, turn))
-      : [...selectedTurns.filter(selected => selected.conversationId === turn.conversationId), turn]
+      : [...selectedTurns.filter(selected => selected.sessionId === turn.sessionId), turn]
         .sort((left, right) => timestamp(left.startedAt) - timestamp(right.startedAt));
     onSelected(next);
   };
 
-  const toggleTrackedConversation = async (conversationId: string) => {
+  const toggleTrackedSession = async (sessionId: string) => {
     if (!activeProject) return;
-    const next = activeTrackedConversationIds.includes(conversationId)
-      ? activeTrackedConversationIds.filter(id => id !== conversationId)
-      : [...activeTrackedConversationIds, conversationId];
-    const result = await onTrackedConversations(activeProject.projectRoot, next);
+    const next = activeTrackedSessionIds.includes(sessionId)
+      ? activeTrackedSessionIds.filter(id => id !== sessionId)
+      : [...activeTrackedSessionIds, sessionId];
+    const result = await onTrackedSessions(activeProject.projectRoot, next);
     if (result.status !== 'ready') {
-      setError(result.error ?? 'The tracked conversation selection could not be saved.');
+      setError(result.error ?? 'The tracked session selection could not be saved.');
       return;
     }
-    setActiveTrackedConversationIds(result.data.conversationIds);
+    setActiveTrackedSessionIds(result.data.sessionIds);
     setError(null);
   };
 
   const createSelectedTask = async () => {
-    if (!activeProject || !activeConversation || selectedInConversation.length === 0) return;
+    if (!activeProject || !activeSession || selectedInSession.length === 0) return;
     setCreatingTask(true);
     setError(null);
     const result = await createTask({
       projectRoot: activeProject.projectRoot,
-      conversationId: activeConversation.id,
-      turnIds: selectedInConversation.map(turn => turn.id),
+      sessionId: activeSession.id,
+      turnIds: selectedInSession.map(turn => turn.id),
       title: taskTitle.trim() || undefined,
     });
     setCreatingTask(false);
@@ -690,16 +778,41 @@ export function HistoryModal({
     }
     const created = result.data;
     setTaskTitle('');
+    setSyncMessage(null);
     setCreatedTask(toTaskSummary(created));
   };
 
-  const inTurns = activeConversation !== null;
-  const inConversations = activeProject !== null && !inTurns;
-  const activeConversationTracked = activeConversation
-    ? activeTrackedConversationIds.includes(activeConversation.id)
+  const openSyncTask = async (task: SyncTaskManifest) => {
+    if (!activeProject) return;
+    setSyncLoading(true);
+    setSyncError(null);
+    const result = await readSyncTask(activeProject.projectRoot, task.id);
+    setSyncLoading(false);
+    if (result.status !== 'ready' || !result.data) {
+      setSyncError(result.error ?? 'This synchronized task could not be read.');
+      return;
+    }
+    await onOpenSyncTask(result.data);
+  };
+
+  const addCreatedTaskToSync = async () => {
+    if (!createdTask) return;
+    setSyncingTask(true);
+    setSyncMessage(null);
+    const result = await addTaskToSync(createdTask.id);
+    setSyncingTask(false);
+    setSyncMessage(result.status === 'ready'
+      ? 'Sync package saved in the project.'
+      : result.error ?? 'The task could not be added to Sync.');
+  };
+
+  const inTurns = activeSession !== null;
+  const inSessions = activeProject !== null && !inTurns;
+  const activeSessionTracked = activeSession
+    ? activeTrackedSessionIds.includes(activeSession.id)
     : false;
-  const selectedInConversation = selectedTurns.filter(
-    turn => turn.conversationId === activeConversation?.id,
+  const selectedInSession = selectedTurns.filter(
+    turn => turn.sessionId === activeSession?.id,
   );
 
   return (
@@ -708,88 +821,107 @@ export function HistoryModal({
     }}>
       <Modal $wide={false} role="dialog" aria-modal="true" aria-label="Activity history">
         <Header>
-          {activeConversation ? (
-            <BackButton type="button" onClick={goBack} aria-label={inTurns ? 'Back to conversations' : 'Back to projects'}>
-              <CaretLeft size={17} weight="bold" /> Conversations
+          {activeSession ? (
+            <BackButton type="button" onClick={goBack} aria-label={inTurns ? 'Back to sessions' : 'Back to projects'}>
+              <CaretLeft size={17} weight="bold" /> Sessions
             </BackButton>
           ) : null}
-          <HeaderTitle>{inTurns ? 'Turns' : inConversations ? 'Conversations' : 'History'}</HeaderTitle>
+          <HeaderTitle>{inTurns ? 'Turns' : inSessions ? 'History' : 'History'}</HeaderTitle>
           <IconButton type="button" onClick={onClose} aria-label="Close history">
             <X size={20} weight="bold" />
           </IconButton>
         </Header>
 
         {inTurns ? (
-          <ConversationContext>
+          <SessionContext>
             <AgentBrandIcon provider="Codex" size={22} />
             <ContextCopy>
-              <ContextTitle title={activeConversation.title}>{activeConversation.title}</ContextTitle>
+              <ContextTitle title={activeSession.title}>{activeSession.title}</ContextTitle>
               <ContextMeta>
-                {activeConversation.turnCount} turns · {activeConversation.observableTurnCount} with activity
+                {activeSession.turnCount} turns · {activeSession.observableTurnCount} with activity
               </ContextMeta>
             </ContextCopy>
             <ContextActions>
               <TrackToggle
                 type="button"
-                $tracked={activeConversationTracked}
+                $tracked={activeSessionTracked}
                 onClick={() => {
-                  void toggleTrackedConversation(activeConversation.id);
+                  void toggleTrackedSession(activeSession.id);
                 }}
               >
-                {activeConversationTracked ? 'Tracked' : 'Track'}
+                {activeSessionTracked ? 'Tracked' : 'Track'}
               </TrackToggle>
-              <SelectionBadge title="Selected turns">{selectedInConversation.length}</SelectionBadge>
+              <SelectionBadge title="Selected turns">{selectedInSession.length}</SelectionBadge>
             </ContextActions>
-          </ConversationContext>
+          </SessionContext>
         ) : null}
 
-        <Toolbar>
+        {!activeSession ? <Toolbar>
+          <CategoryTabs role="tablist" aria-label="History categories">
+            <CategoryButton type="button" role="tab" aria-selected={historySection === 'sessions'} $active={historySection === 'sessions'} onClick={() => { setHistorySection('sessions'); setQuery(''); setSyncError(null); }}>Sessions</CategoryButton>
+            <CategoryButton type="button" role="tab" aria-selected={historySection === 'sync'} $active={historySection === 'sync'} onClick={() => { setHistorySection('sync'); setQuery(''); setError(null); }}>Sync</CategoryButton>
+          </CategoryTabs>
+            <SearchField>
+              <MagnifyingGlass size={17} weight="bold" />
+              <input
+                autoFocus
+                value={query}
+                onChange={event => setQuery(event.target.value)}
+                placeholder={inTurns ? 'Filter prompts or activity' : historySection === 'sync' ? 'Filter synchronized tasks' : 'Filter sessions'}
+                aria-label={inTurns ? 'Filter turns' : historySection === 'sync' ? 'Filter synchronized tasks' : 'Filter sessions'}
+              />
+            </SearchField>
+          </Toolbar> : <Toolbar>
           <SearchField>
             <MagnifyingGlass size={17} weight="bold" />
-            <input
-              autoFocus
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder={inTurns ? 'Filter prompts or activity' : 'Filter conversations'}
-              aria-label={inTurns ? 'Filter turns' : 'Filter conversations'}
-            />
+            <input autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setQuery(''); }} placeholder="Filter prompts or activity" aria-label="Filter turns" />
           </SearchField>
-        </Toolbar>
+        </Toolbar>}
 
-        {createdTask ? <ConversationContext>
+        {createdTask ? <SessionContext>
           <ClipboardText size={20} />
-          <ContextCopy><ContextTitle>{createdTask.title}</ContextTitle><ContextMeta>{createdTask.status === 'ready' ? 'Flow document ready in Library' : createdTask.status === 'failed' ? `Generation failed · ${createdTask.error ?? 'Unknown error'}` : 'Task created · Generating flow document…'}</ContextMeta></ContextCopy>
-        </ConversationContext> : null}
+          <ContextCopy><ContextTitle>{createdTask.title}</ContextTitle><ContextMeta>{syncMessage ?? (createdTask.status === 'ready' ? 'Flow document ready in Library' : createdTask.status === 'failed' ? `Generation failed · ${createdTask.error ?? 'Unknown error'}` : 'Task created · Generating flow document…')}</ContextMeta></ContextCopy>
+          {createdTask.status === 'ready' ? <SyncButton
+            type="button"
+            $tracked={false}
+            disabled={syncingTask}
+            onClick={() => { void addCreatedTaskToSync(); }}
+          >
+            {syncingTask ? 'Saving…' : 'Add to Sync'}
+          </SyncButton> : null}
+        </SessionContext> : null}
 
         <HistoryBody>
           {!currentProjectRoot ? (
             <EmptyNotice title="No project open" message="Use the project button in View to open a project before browsing history." />
+          ) : !inTurns && historySection === 'sync' ? (
+            <SyncTaskList tasks={filteredSyncTasks} loading={syncLoading} error={syncError} onOpen={task => { void openSyncTask(task); }} />
           ) : !inTurns ? (
-            <ConversationList
-              conversations={filteredConversations}
-              selectedConversationId={selectedTurns[0]?.conversationId}
-              trackedConversationIds={activeTrackedConversationIds}
+            <SessionList
+              sessions={filteredSessions}
+              selectedSessionId={selectedTurns[0]?.sessionId}
+              trackedSessionIds={activeTrackedSessionIds}
               loading={loadingList}
               error={error}
-              onOpen={conversation => { void openConversation(conversation); }}
-              onTrack={conversationId => { void toggleTrackedConversation(conversationId); }}
+              onOpen={session => { void openSession(session); }}
+              onTrack={sessionId => { void toggleTrackedSession(sessionId); }}
             />
           ) : loadingTurns ? (
-            <LoadingNotice label="Loading conversation turns…" />
+            <LoadingNotice label="Loading session turns…" />
           ) : error ? (
             <ErrorNotice message={error} />
           ) : (
             <TurnList
               turns={filteredTurns}
               selectedTurns={selectedTurns}
-              selectionEnabled={activeConversationTracked}
+              selectionEnabled={activeSessionTracked}
               onToggle={toggleTurn}
             />
           )}
         </HistoryBody>
 
         <Footer>
-          {inTurns && activeConversationTracked && selectedInConversation.length > 0 ? (
+          {inTurns && activeSessionTracked && selectedInSession.length > 0 ? (
             <>
               <TaskTitleInput
                 value={taskTitle}
@@ -809,11 +941,13 @@ export function HistoryModal({
           ) : (
             <FooterMessage>
               {inTurns
-                    ? activeConversationTracked
+                    ? activeSessionTracked
                       ? 'Select one or more turns to create a task'
-                      : 'Read-only · Track this conversation to select turns'
-                    : inConversations
-                      ? 'Conversations are ordered by their latest activity'
+                      : 'Read-only · Track this session to select turns'
+                    : inSessions
+                      ? historySection === 'sync'
+                        ? 'Select a synchronized task to open its document in View'
+                        : 'Sessions are ordered by their latest activity'
                       : `Current project · ${currentProjectRoot ? projectName(currentProjectRoot) : 'None'}`}
             </FooterMessage>
           )}
@@ -823,57 +957,89 @@ export function HistoryModal({
   );
 }
 
-function ConversationList({
-  conversations,
-  selectedConversationId,
-  trackedConversationIds,
+function SessionList({
+  sessions,
+  selectedSessionId,
+  trackedSessionIds,
   loading,
   error,
   onOpen,
   onTrack,
 }: {
-  conversations: ConversationSummary[];
-  selectedConversationId?: string;
-  trackedConversationIds: string[];
+  sessions: SessionSummary[];
+  selectedSessionId?: string;
+  trackedSessionIds: string[];
   loading: boolean;
   error: string | null;
-  onOpen(conversation: ConversationSummary): void;
-  onTrack(conversationId: string): void;
+  onOpen(session: SessionSummary): void;
+  onTrack(sessionId: string): void;
 }) {
-  if (loading) return <LoadingNotice label="Loading conversations…" />;
+  if (loading) return <LoadingNotice label="Loading sessions…" />;
   if (error) return <ErrorNotice message={error} />;
-  if (conversations.length === 0) {
-    return <EmptyNotice title="No project conversations" message="No Codex conversation contains turns for this project." />;
+  if (sessions.length === 0) {
+    return <EmptyNotice title="No project sessions" message="No Codex session contains turns for this project." />;
   }
 
   return <>
-    {conversations.map(conversation => (
-      <ConversationRow
-        key={conversation.id}
-        $current={conversation.id === selectedConversationId}
+    {sessions.map(session => (
+      <SessionRow
+        key={session.id}
+        $current={session.id === selectedSessionId}
       >
-        <ConversationButton type="button" onClick={() => onOpen(conversation)}>
+        <SessionButton type="button" onClick={() => onOpen(session)}>
           <AgentBrandIcon provider="Codex" size={21} />
-          <ConversationCopy>
-            <ConversationTitle title={conversation.title}>{conversation.title}</ConversationTitle>
-            <ConversationMeta>
-              {conversation.turnCount} turns · {conversation.observableTurnCount} with activity
-            </ConversationMeta>
-          </ConversationCopy>
-          <ConversationTime dateTime={conversation.updatedAt ?? undefined}>
-            {formatTime(timestamp(conversation.updatedAt))}
-          </ConversationTime>
+          <SessionCopy>
+            <SessionTitle title={session.title}>{session.title}</SessionTitle>
+            <SessionMeta>
+              {session.turnCount} turns · {session.observableTurnCount} with activity
+            </SessionMeta>
+          </SessionCopy>
+          <SessionTime dateTime={session.updatedAt ?? undefined}>
+            {formatTime(timestamp(session.updatedAt))}
+          </SessionTime>
           <CaretRight size={16} weight="bold" />
-        </ConversationButton>
-        <ConversationTrackButton
+        </SessionButton>
+        <SessionTrackButton
           type="button"
-          $tracked={trackedConversationIds.includes(conversation.id)}
-          aria-pressed={trackedConversationIds.includes(conversation.id)}
-          onClick={() => onTrack(conversation.id)}
+          $tracked={trackedSessionIds.includes(session.id)}
+          aria-pressed={trackedSessionIds.includes(session.id)}
+          onClick={() => onTrack(session.id)}
         >
-          {trackedConversationIds.includes(conversation.id) ? 'Tracked' : 'Track'}
-        </ConversationTrackButton>
-      </ConversationRow>
+          {trackedSessionIds.includes(session.id) ? 'Tracked' : 'Track'}
+        </SessionTrackButton>
+      </SessionRow>
+    ))}
+  </>;
+}
+
+function SyncTaskList({
+  tasks,
+  loading,
+  error,
+  onOpen,
+}: {
+  tasks: SyncTaskManifest[];
+  loading: boolean;
+  error: string | null;
+  onOpen(task: SyncTaskManifest): void;
+}) {
+  if (loading) return <LoadingNotice label="Loading synchronized tasks…" />;
+  if (error) return <ErrorNotice message={error} />;
+  if (tasks.length === 0) {
+    return <EmptyNotice title="No synchronized tasks" message="Create a task from a tracked session, then add it to Sync." />;
+  }
+
+  return <>
+    {tasks.map(task => (
+      <SyncTaskRow key={task.id} type="button" onClick={() => onOpen(task)}>
+        <CloudArrowUp size={21} weight="bold" />
+        <SessionCopy>
+          <SessionTitle title={task.title}>{task.title}</SessionTitle>
+          <SessionMeta>{task.turns.length} turns · {task.eventCount} events · {task.projectFile}</SessionMeta>
+        </SessionCopy>
+        <SessionTime dateTime={task.updatedAt}>{formatTime(timestamp(task.updatedAt))}</SessionTime>
+        <CaretRight size={16} weight="bold" />
+      </SyncTaskRow>
     ))}
   </>;
 }
@@ -896,7 +1062,7 @@ function TurnList({
   return <>
     {!selectionEnabled ? (
       <SelectionLockNotice id="turn-selection-requires-tracking" role="note">
-        <strong>Read-only preview.</strong> Track this conversation before selecting turns for the timeline.
+        <strong>Read-only preview.</strong> Track this session before selecting turns for the timeline.
       </SelectionLockNotice>
     ) : null}
     {groupByDay(turns, turn => timestamp(turn.startedAt)).map(([day, items]) => (
@@ -907,7 +1073,7 @@ function TurnList({
           return (
             <TurnButton
               type="button"
-              key={`${turn.conversationId}:${turn.id}`}
+              key={`${turn.sessionId}:${turn.id}`}
               $selected={selected}
               $status={turn.status}
               $selectionEnabled={selectionEnabled}
@@ -953,7 +1119,7 @@ function EmptyNotice({ title, message }: { title: string; message: string }) {
 }
 
 function sameTurn(left: HistoryTurnSummary, right: HistoryTurnSummary): boolean {
-  return left.conversationId === right.conversationId && left.id === right.id;
+  return left.sessionId === right.sessionId && left.id === right.id;
 }
 
 function toTaskSummary(task: TaskRecord): TaskSummary {
@@ -961,7 +1127,7 @@ function toTaskSummary(task: TaskRecord): TaskSummary {
     id: task.id,
     title: task.title,
     projectRoot: task.projectRoot,
-    conversationId: task.conversationId,
+    sessionId: task.sessionId,
     turnIds: task.turnIds,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
