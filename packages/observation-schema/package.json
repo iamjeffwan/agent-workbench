@@ -20,6 +20,7 @@
     "test": "tsc -p tsconfig.json && node --test test/schema.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
   },
   "engines": {

@@ -19,6 +19,7 @@
     "test": "tsc -p tsconfig.json && node --test test/adapt-session.test.mjs test/history.test.mjs test/source-view.test.mjs"
   },
   "dependencies": {
+    "@agent-workbench/security": "workspace:*",
     "@agent-workbench/observation-schema": "workspace:*"
   },
   "devDependencies": {

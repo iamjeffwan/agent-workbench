@@ -13,6 +13,7 @@ export type {
   Provenance,
   RawRef,
   SourceAgent,
+  StandardCapabilityName,
   Usage,
   ValidationIssue,
   ValidationResult,

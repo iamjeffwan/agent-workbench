@@ -14,6 +14,7 @@
   },
   "$defs": {
     "provenance": { "enum": ["direct", "derived", "supplemented"] },
+    "availability": { "enum": ["full", "partial", "derived", "unavailable"] },
     "rawRef": {
       "type": "object",
       "additionalProperties": false,
@@ -53,6 +54,8 @@
         "subtype": { "type": "string" },
         "callId": { "type": "string" },
         "sourceToolName": { "type": "string" },
+        "authorId": { "type": "string", "minLength": 1 },
+        "recipientId": { "type": "string", "minLength": 1 },
         "content": { "type": "string" },
         "data": {},
         "usage": { "$ref": "#/$defs/usage" },
@@ -63,7 +66,8 @@
         "provenance": { "$ref": "#/$defs/provenance" },
         "fieldProvenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } },
         "fidelity": { "enum": ["full", "partial"] },
-        "rawRef": { "$ref": "#/$defs/rawRef" }
+        "rawRef": { "$ref": "#/$defs/rawRef" },
+        "relatedRawRefs": { "type": "array", "items": { "$ref": "#/$defs/rawRef" } }
       }
     },
     "turn": {
@@ -111,7 +115,20 @@
         "agent": { "enum": ["codex", "claude-code", "gemini-cli"] },
         "capabilities": {
           "type": "object",
-          "additionalProperties": { "enum": ["full", "partial", "derived", "unavailable"] }
+          "required": ["user_message", "agent_message", "tool_call", "tool_result", "file_diff", "token_usage", "reasoning_summary", "approval_events", "subagent_events", "inter_agent_messages"],
+          "properties": {
+            "user_message": { "$ref": "#/$defs/availability" },
+            "agent_message": { "$ref": "#/$defs/availability" },
+            "tool_call": { "$ref": "#/$defs/availability" },
+            "tool_result": { "$ref": "#/$defs/availability" },
+            "file_diff": { "$ref": "#/$defs/availability" },
+            "token_usage": { "$ref": "#/$defs/availability" },
+            "reasoning_summary": { "$ref": "#/$defs/availability" },
+            "approval_events": { "$ref": "#/$defs/availability" },
+            "subagent_events": { "$ref": "#/$defs/availability" },
+            "inter_agent_messages": { "$ref": "#/$defs/availability" }
+          },
+          "additionalProperties": { "$ref": "#/$defs/availability" }
         }
       }
     },

@@ -115,6 +115,9 @@ importers:
       '@agent-workbench/observation-schema':
         specifier: workspace:*
         version: link:../observation-schema
+      '@agent-workbench/security':
+        specifier: workspace:*
+        version: link:../agent-workbench-security
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -125,6 +128,9 @@ importers:
 
   packages/observation-schema:
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
       typescript:
         specifier: ^5.7.0
         version: 5.7.2

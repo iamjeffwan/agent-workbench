@@ -15,7 +15,7 @@ import type {
 import {
   redactCredentials,
   redactCredentialText,
-} from '../../agent-workbench-security/index.mjs';
+} from '@agent-workbench/security';
 
 const DEFAULT_ADAPTER_VERSION = '0.1.0';
 const MAX_CONTENT_CHARS = 4_000;
@@ -88,6 +88,8 @@ export function adaptCodexSession(
   const turns: MutableTurn[] = [];
   let currentTurn: MutableTurn | undefined;
   let pendingContext: { line: number; timestamp?: string; turnId?: string; cwd?: string; model?: string } | undefined;
+  const pendingRuntimeContexts: Array<{ record: { line: number; value: SourceRecord }; content?: string }> = [];
+  let pendingCommunication: { record: { line: number; value: SourceRecord }; data: Record<string, unknown> } | undefined;
   let eventSequence = 0;
   let firstTimestamp: string | undefined;
   let lastTimestamp: string | undefined;
@@ -122,6 +124,24 @@ export function adaptCodexSession(
     newUserBoundary = false,
   ): ObservationEvent => {
     const turn = ensureTurn(record, newUserBoundary);
+    for (const pending of pendingRuntimeContexts.splice(0)) {
+      turn.events.push(createEvent(pending.record, turn, 'lifecycle', {
+        actor: 'system',
+        subtype: 'runtime_context',
+        content: pending.content,
+      }));
+    }
+    const event = createEvent(record, turn, type, details);
+    turn.events.push(event);
+    return event;
+  };
+
+  const createEvent = (
+    record: { line: number; value: SourceRecord },
+    turn: MutableTurn,
+    type: ObservationEventType,
+    details: Partial<ObservationEvent> = {},
+  ): ObservationEvent => {
     const timestamp = timestampValue(record.value.timestamp);
     const event: ObservationEvent = {
       eventId: `event-${String(eventSequence + 1).padStart(6, '0')}`,
@@ -140,7 +160,6 @@ export function adaptCodexSession(
       ...details,
     };
     eventSequence += 1;
-    turn.events.push(event);
     return event;
   };
 
@@ -152,6 +171,17 @@ export function adaptCodexSession(
     if (timestamp) {
       firstTimestamp ??= timestamp;
       lastTimestamp = timestamp;
+    }
+
+    const isAgentMessage = sourceType === 'response_item' && payloadType === 'agent_message';
+    if (pendingCommunication && !isAgentMessage && sourceType !== 'inter_agent_communication_metadata') {
+      appendEvent(pendingCommunication.record, 'lifecycle', {
+        actor: 'system',
+        category: 'inter_agent',
+        subtype: 'communication_metadata',
+        data: safeValue(pendingCommunication.data),
+      });
+      pendingCommunication = undefined;
     }
 
     if (sourceType === 'session_meta') continue;
@@ -170,9 +200,17 @@ export function adaptCodexSession(
     if (sourceType === 'response_item' && payloadType === 'message') {
       const role = stringValue(payload?.role);
       if (role === 'user' || role === 'assistant') {
+        const content = extractMessage(payload?.content);
+        if (role === 'user' && isInjectedRuntimeContext(content)) {
+          pendingRuntimeContexts.push({ record, content });
+          continue;
+        }
+        if (role === 'user' && attachDuplicateUserSource(currentTurn, content, record, sourceFile)) {
+          continue;
+        }
         const event = appendEvent(record, 'message', {
           actor: role,
-          content: extractMessage(payload?.content),
+          content,
         }, role === 'user');
         if (role === 'user') ensureMutableTurn(turns, event.turnId).hasUserMessage = true;
         continue;
@@ -186,11 +224,55 @@ export function adaptCodexSession(
         continue;
       }
     }
+    if (sourceType === 'inter_agent_communication_metadata') {
+      if (pendingCommunication) {
+        appendEvent(pendingCommunication.record, 'lifecycle', {
+          actor: 'system',
+          category: 'inter_agent',
+          subtype: 'communication_metadata',
+          data: safeValue(pendingCommunication.data),
+        });
+      }
+      pendingCommunication = { record, data: payload ?? {} };
+      continue;
+    }
+    if (isAgentMessage) {
+      const communication = pendingCommunication;
+      pendingCommunication = undefined;
+      const triggerTurn = communication?.data.trigger_turn;
+      appendEvent(record, 'message', {
+        actor: 'assistant',
+        category: 'inter_agent',
+        subtype: 'agent_message',
+        content: extractMessage(payload?.content),
+        authorId: stringValue(payload?.author),
+        recipientId: stringValue(payload?.recipient),
+        data: {
+          ...(typeof triggerTurn === 'boolean' ? { triggerTurn } : {}),
+          ...(payload?.internal_chat_message_metadata_passthrough !== undefined
+            ? { metadata: safeValue(payload.internal_chat_message_metadata_passthrough) }
+            : {}),
+        },
+        ...(communication ? {
+          relatedRawRefs: [rawRef(
+            sourceFile,
+            communication.record.line,
+            sourceEventType(communication.record.value),
+            sourceId(communication.record.value),
+          )],
+        } : {}),
+      });
+      continue;
+    }
     if (sourceType === 'event_msg' && (payloadType === 'user_message' || payloadType === 'agent_message')) {
       const role = payloadType === 'user_message' ? 'user' : 'assistant';
+      const content = safeText(payload?.message ?? payload?.text);
+      if (role === 'user' && attachDuplicateUserSource(currentTurn, content, record, sourceFile)) {
+        continue;
+      }
       const event = appendEvent(record, 'message', {
         actor: role,
-        content: safeText(payload?.message ?? payload?.text),
+        content,
       }, role === 'user');
       if (role === 'user') ensureMutableTurn(turns, event.turnId).hasUserMessage = true;
       continue;
@@ -272,6 +354,23 @@ export function adaptCodexSession(
       diagnostics.lossyEventCount += 1;
       continue;
     }
+    if (sourceType === 'event_msg' && payloadType === 'sub_agent_activity') {
+      const kind = stringValue(payload?.kind) ?? 'activity';
+      appendEvent(record, 'lifecycle', {
+        actor: 'assistant',
+        category: 'subagent',
+        subtype: kind,
+        status: subagentStatus(kind),
+        authorId: stringValue(payload?.agent_path) ?? stringValue(payload?.agent_thread_id),
+        data: safeValue({
+          eventId: payload?.event_id,
+          agentThreadId: payload?.agent_thread_id,
+          agentPath: payload?.agent_path,
+          kind,
+        }),
+      });
+      continue;
+    }
     if (sourceType === 'event_msg' && (payloadType === 'web_search_end' || payloadType === 'mcp_tool_call_end')) {
       appendEvent(record, 'tool_result', {
         actor: 'tool',
@@ -307,6 +406,17 @@ export function adaptCodexSession(
   if (lastTimestamp) session.endedAt = lastTimestamp;
   const lastTurn = turns.at(-1);
   if (lastTurn?.status === 'in_progress' && lastTimestamp) lastTurn.endedAt = lastTimestamp;
+  if (pendingCommunication) {
+    appendEvent(pendingCommunication.record, 'lifecycle', {
+      actor: 'system',
+      category: 'inter_agent',
+      subtype: 'communication_metadata',
+      data: safeValue(pendingCommunication.data),
+    });
+  }
+
+  const events = turns.flatMap(turn => turn.events);
+  const fileChanges = events.filter(event => event.type === 'file_change');
 
   const observation: ObservationSession = {
     schemaVersion: '1.0-draft',
@@ -315,15 +425,19 @@ export function adaptCodexSession(
     capabilityManifest: {
       agent: 'codex',
       capabilities: {
-        user_message: 'full',
-        agent_message: 'full',
-        tool_call: 'full',
-        tool_result: 'full',
-        tool_duration: 'partial',
-        file_diff: 'derived',
-        token_usage: 'full',
-        reasoning_summary: 'partial',
+        user_message: availability(events.some(event => event.type === 'message' && event.actor === 'user')),
+        agent_message: availability(events.some(event => event.type === 'message' && event.actor === 'assistant')),
+        tool_call: availability(events.some(event => event.type === 'tool_call')),
+        tool_result: availability(events.some(event => event.type === 'tool_result')),
+        tool_duration: turns.some(turn => turn.durationMs !== undefined) ? 'partial' : 'unavailable',
+        file_diff: fileChanges.length === 0
+          ? 'unavailable'
+          : fileChanges.every(event => event.fidelity === 'full') ? 'full' : 'partial',
+        token_usage: availability(events.some(event => event.usage !== undefined)),
+        reasoning_summary: events.some(event => event.type === 'reasoning_summary') ? 'partial' : 'unavailable',
         approval_events: 'unavailable',
+        subagent_events: availability(events.some(event => event.category === 'subagent')),
+        inter_agent_messages: availability(events.some(event => event.category === 'inter_agent' && event.type === 'message')),
         git_metadata: options.projectId ? 'derived' : 'unavailable',
       },
     },
@@ -400,6 +514,38 @@ function extractReasoning(payload: Record<string, unknown> | undefined): string 
   return safeText(payload?.message ?? payload?.text);
 }
 
+function isInjectedRuntimeContext(value: string | undefined): boolean {
+  if (!value) return false;
+  const trimmed = value.trimStart();
+  return (
+    (trimmed.startsWith('<recommended_plugins>')
+      && trimmed.includes('# AGENTS.md instructions')
+      && trimmed.includes('<environment_context>'))
+    || (trimmed.startsWith('<environment_context>')
+      && trimmed.includes('</environment_context>')
+      && trimmed.includes('<current_date>')
+      && trimmed.includes('<timezone>'))
+  );
+}
+
+function attachDuplicateUserSource(
+  turn: MutableTurn | undefined,
+  content: string | undefined,
+  record: { line: number; value: SourceRecord },
+  sourceFile: string,
+): boolean {
+  if (!turn || !content) return false;
+  const previous = [...turn.events].reverse().find(event => event.type === 'message' && event.actor === 'user');
+  if (!previous || previous.content !== content || Math.abs(previous.rawRef.line - record.line) > 3) return false;
+  const pair = new Set([previous.rawRef.sourceType, sourceEventType(record.value)]);
+  if (!pair.has('response_item/message') || !pair.has('event_msg/user_message')) return false;
+  previous.relatedRawRefs = [
+    ...(previous.relatedRawRefs ?? []),
+    rawRef(sourceFile, record.line, sourceEventType(record.value), sourceId(record.value)),
+  ];
+  return true;
+}
+
 function parseArguments(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value) as unknown; } catch { return value; }
@@ -447,6 +593,18 @@ function toolCategory(name: string | undefined): string | undefined {
   if (/mcp/i.test(name)) return 'mcp';
   if (/exec|shell|command|stdin/i.test(name)) return 'shell';
   return 'other';
+}
+
+function availability(observed: boolean): 'full' | 'unavailable' {
+  return observed ? 'full' : 'unavailable';
+}
+
+function subagentStatus(kind: string): ObservationEvent['status'] | undefined {
+  if (kind === 'started') return 'started';
+  if (kind === 'completed' || kind === 'finished') return 'completed';
+  if (kind === 'failed') return 'failed';
+  if (kind === 'aborted') return 'aborted';
+  return undefined;
 }
 
 function markToolCallCompleted(turns: MutableTurn[], callId: string | undefined): void {

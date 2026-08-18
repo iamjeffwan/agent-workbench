@@ -1,127 +1,123 @@
+import fs from 'node:fs';
+
 import type {
-  ObservationEvent,
   ObservationSession,
-  ObservationTurn,
   ValidationIssue,
   ValidationResult,
 } from './types.js';
 
-const eventTypes = new Set([
-  'message',
-  'reasoning_summary',
-  'tool_call',
-  'tool_result',
-  'file_change',
-  'error',
-  'lifecycle',
-]);
-const provenances = new Set(['direct', 'derived', 'supplemented']);
-const fidelities = new Set(['full', 'partial']);
+type JsonSchema = Record<string, unknown>;
+
+const observationSchema = JSON.parse(
+  fs.readFileSync(new URL('../schema/observation-session.schema.json', import.meta.url), 'utf8'),
+) as JsonSchema;
 
 export function validateObservationSession(value: unknown): ValidationResult {
   const errors: ValidationIssue[] = [];
-  if (!isRecord(value)) return invalid(errors, '$', 'must be an object');
-  requiredString(value, 'schemaVersion', '$', errors);
-  if (value.schemaVersion !== '1.0-draft') issue(errors, '$.schemaVersion', 'must equal 1.0-draft');
-
-  if (!isRecord(value.session)) issue(errors, '$.session', 'must be an object');
-  else validateSession(value.session, errors);
-
-  if (!Array.isArray(value.turns)) issue(errors, '$.turns', 'must be an array');
-  else value.turns.forEach((turn, index) => validateTurn(turn, index, errors));
-
-  if (!isRecord(value.capabilityManifest)) issue(errors, '$.capabilityManifest', 'must be an object');
-  else {
-    requiredString(value.capabilityManifest, 'agent', '$.capabilityManifest', errors);
-    if (!isRecord(value.capabilityManifest.capabilities)) {
-      issue(errors, '$.capabilityManifest.capabilities', 'must be an object');
-    }
-  }
-
-  if (!isRecord(value.diagnostics)) issue(errors, '$.diagnostics', 'must be an object');
-  else {
-    for (const key of ['unknownSourceEventCount', 'parseErrorCount', 'lossyEventCount', 'unsupportedFieldCount']) {
-      requiredNonNegativeInteger(value.diagnostics, key, '$.diagnostics', errors);
-    }
-    if (!Array.isArray(value.diagnostics.entries)) issue(errors, '$.diagnostics.entries', 'must be an array');
-  }
-
+  validateValue(value, observationSchema, '$', errors, observationSchema);
   return errors.length === 0 ? { valid: true, errors: [] } : { valid: false, errors };
 }
 
 export function assertObservationSession(value: unknown): asserts value is ObservationSession {
   const result = validateObservationSession(value);
   if (!result.valid) {
-    throw new TypeError(`Invalid ObservationSession: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`);
+    throw new TypeError(
+      `Invalid ObservationSession: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`,
+    );
   }
 }
 
-function validateSession(value: Record<string, unknown>, errors: ValidationIssue[]): void {
-  for (const key of ['sessionId', 'sourceAgent', 'sourceVersion', 'adapterVersion']) {
-    requiredString(value, key, '$.session', errors);
-  }
-  validateRawRef(value.rawRef, '$.session.rawRef', errors);
-}
-
-function validateTurn(value: unknown, index: number, errors: ValidationIssue[]): void {
-  const base = `$.turns[${index}]`;
-  if (!isRecord(value)) return issue(errors, base, 'must be an object');
-  requiredString(value, 'turnId', base, errors);
-  requiredNonNegativeInteger(value, 'sequence', base, errors);
-  validateRawRef(value.sourceRef, `${base}.sourceRef`, errors);
-  if (!Array.isArray(value.events)) return issue(errors, `${base}.events`, 'must be an array');
-  value.events.forEach((event, eventIndex) => validateEvent(event, value as unknown as ObservationTurn, index, eventIndex, errors));
-}
-
-function validateEvent(
+function validateValue(
   value: unknown,
-  turn: ObservationTurn,
-  turnIndex: number,
-  eventIndex: number,
+  schema: JsonSchema,
+  path: string,
   errors: ValidationIssue[],
+  root: JsonSchema,
 ): void {
-  const base = `$.turns[${turnIndex}].events[${eventIndex}]`;
-  if (!isRecord(value)) return issue(errors, base, 'must be an object');
-  for (const key of ['eventId', 'turnId', 'type', 'sourceAgent', 'sourceVersion', 'sourceEventType', 'adapterVersion']) {
-    requiredString(value, key, base, errors);
+  const resolved = resolveSchema(schema, root);
+
+  if ('const' in resolved && !Object.is(value, resolved.const)) {
+    issue(errors, path, `must equal ${String(resolved.const)}`);
   }
-  requiredNonNegativeInteger(value, 'sequence', base, errors);
-  if (value.turnId !== turn.turnId) issue(errors, `${base}.turnId`, 'must match its containing turn');
-  if (!eventTypes.has(value.type as ObservationEvent['type'])) issue(errors, `${base}.type`, 'is not a supported event type');
-  if (!provenances.has(value.provenance as string)) issue(errors, `${base}.provenance`, 'is not a supported provenance');
-  if (!fidelities.has(value.fidelity as string)) issue(errors, `${base}.fidelity`, 'is not a supported fidelity');
-  validateRawRef(value.rawRef, `${base}.rawRef`, errors);
+  if (Array.isArray(resolved.enum) && !resolved.enum.some(candidate => Object.is(candidate, value))) {
+    issue(errors, path, 'is not an allowed value');
+  }
+
+  const expectedType = typeof resolved.type === 'string' ? resolved.type : undefined;
+  if (expectedType && !matchesType(value, expectedType)) {
+    issue(errors, path, `must be ${expectedType}`);
+    return;
+  }
+
+  if (typeof value === 'string' && typeof resolved.minLength === 'number' && value.length < resolved.minLength) {
+    issue(errors, path, `must have length >= ${resolved.minLength}`);
+  }
+  if (typeof value === 'number' && typeof resolved.minimum === 'number' && value < resolved.minimum) {
+    issue(errors, path, `must be >= ${resolved.minimum}`);
+  }
+
+  if (Array.isArray(value)) {
+    if (isSchema(resolved.items)) {
+      value.forEach((item, index) => validateValue(item, resolved.items as JsonSchema, `${path}[${index}]`, errors, root));
+    }
+    return;
+  }
+
+  if (!isRecord(value)) return;
+  const properties = isRecord(resolved.properties) ? resolved.properties : {};
+  const required = Array.isArray(resolved.required)
+    ? resolved.required.filter((key): key is string => typeof key === 'string')
+    : [];
+
+  for (const key of required) {
+    if (!(key in value)) issue(errors, `${path}.${key}`, 'is required');
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    const propertySchema = properties[key];
+    if (isSchema(propertySchema)) {
+      validateValue(child, propertySchema, `${path}.${key}`, errors, root);
+      continue;
+    }
+    if (resolved.additionalProperties === false) {
+      issue(errors, `${path}.${key}`, 'is not allowed');
+    } else if (isSchema(resolved.additionalProperties)) {
+      validateValue(child, resolved.additionalProperties, `${path}.${key}`, errors, root);
+    }
+  }
 }
 
-function validateRawRef(value: unknown, path: string, errors: ValidationIssue[]): void {
-  if (!isRecord(value)) return issue(errors, path, 'must be an object');
-  requiredString(value, 'sourceFile', path, errors);
-  requiredString(value, 'sourceType', path, errors);
-  requiredNonNegativeInteger(value, 'line', path, errors, 1);
+function resolveSchema(schema: JsonSchema, root: JsonSchema): JsonSchema {
+  if (typeof schema.$ref !== 'string') return schema;
+  if (!schema.$ref.startsWith('#/')) throw new TypeError(`Unsupported JSON Schema reference: ${schema.$ref}`);
+  let current: unknown = root;
+  for (const segment of schema.$ref.slice(2).split('/')) {
+    if (!isRecord(current) || !(segment in current)) {
+      throw new TypeError(`Unresolved JSON Schema reference: ${schema.$ref}`);
+    }
+    current = current[segment];
+  }
+  if (!isSchema(current)) throw new TypeError(`Invalid JSON Schema reference: ${schema.$ref}`);
+  return current;
 }
 
-function requiredString(value: Record<string, unknown>, key: string, base: string, errors: ValidationIssue[]): void {
-  if (typeof value[key] !== 'string' || value[key] === '') issue(errors, `${base}.${key}`, 'must be a non-empty string');
-}
-
-function requiredNonNegativeInteger(
-  value: Record<string, unknown>,
-  key: string,
-  base: string,
-  errors: ValidationIssue[],
-  minimum = 0,
-): void {
-  const candidate = value[key];
-  if (!Number.isInteger(candidate) || (candidate as number) < minimum) issue(errors, `${base}.${key}`, `must be an integer >= ${minimum}`);
+function matchesType(value: unknown, expected: string): boolean {
+  if (expected === 'object') return isRecord(value);
+  if (expected === 'array') return Array.isArray(value);
+  if (expected === 'integer') return Number.isInteger(value);
+  if (expected === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (expected === 'string') return typeof value === 'string';
+  if (expected === 'boolean') return typeof value === 'boolean';
+  if (expected === 'null') return value === null;
+  return true;
 }
 
 function issue(errors: ValidationIssue[], path: string, message: string): void {
   errors.push({ path, message });
 }
 
-function invalid(errors: ValidationIssue[], path: string, message: string): ValidationResult {
-  issue(errors, path, message);
-  return { valid: false, errors };
+function isSchema(value: unknown): value is JsonSchema {
+  return isRecord(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

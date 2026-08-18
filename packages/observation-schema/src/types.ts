@@ -40,6 +40,8 @@ export type ObservationEvent = {
   subtype?: string;
   callId?: string;
   sourceToolName?: string;
+  authorId?: string;
+  recipientId?: string;
   content?: string;
   data?: unknown;
   usage?: Usage;
@@ -51,7 +53,20 @@ export type ObservationEvent = {
   fieldProvenance?: Record<string, Provenance>;
   fidelity: Fidelity;
   rawRef: RawRef;
+  relatedRawRefs?: RawRef[];
 };
+
+export type StandardCapabilityName =
+  | 'user_message'
+  | 'agent_message'
+  | 'tool_call'
+  | 'tool_result'
+  | 'file_diff'
+  | 'token_usage'
+  | 'reasoning_summary'
+  | 'approval_events'
+  | 'subagent_events'
+  | 'inter_agent_messages';
 
 export type ObservationTurn = {
   turnId: string;
@@ -84,7 +99,7 @@ export type ObservationSessionMetadata = {
 
 export type CapabilityManifest = {
   agent: SourceAgent;
-  capabilities: Record<string, Availability>;
+  capabilities: Record<StandardCapabilityName, Availability> & Record<string, Availability>;
 };
 
 export type AdapterDiagnosticEntry = {
