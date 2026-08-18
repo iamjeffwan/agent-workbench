@@ -13,6 +13,9 @@ importers:
       '@agent-workbench/codex-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-adapter
+      '@agent-workbench/project-observation':
+        specifier: workspace:*
+        version: link:../../packages/project-observation
       '@agent-workbench/timeline':
         specifier: workspace:*
         version: link:../../packages/timeline

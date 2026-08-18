@@ -12,10 +12,15 @@ import {
   buildTimeline,
   reviewTimelineResults,
 } from '@agent-workbench/timeline';
+import {
+  captureProjectState,
+  deriveProjectTurnFacts,
+} from '@agent-workbench/project-observation';
 import { createSessionHistoryService } from './session-history.mjs';
 import { createDeepSeekModelService } from './deepseek-model.mjs';
 import { createFlowDocumentGenerator } from './flow-document-generator.mjs';
 import { createProjectAssetsService } from './project-assets.mjs';
+import { createProjectObservationService } from './project-observation-service.mjs';
 import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
@@ -59,6 +64,11 @@ const projectAssets = createProjectAssetsService({
   ).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim(),
   trashItem: target => shell.trashItem(target),
 });
+const projectObservation = createProjectObservationService({
+  getUserDataPath: () => app.getPath('userData'),
+  captureState: captureProjectState,
+  deriveFacts: deriveProjectTurnFacts,
+});
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.agentworkbench.desktop');
@@ -101,6 +111,7 @@ let state = {
       lastSyncAt: null,
       processLinking: 'unavailable',
       codeState: 'unavailable',
+      projectObservation: null,
     },
   },
   sources: {},
@@ -174,6 +185,7 @@ function refreshState() {
       lastSyncAt: null,
       processLinking: 'unavailable',
       codeState: 'unavailable',
+      projectObservation: null,
     };
     state.fileBus = {
       status: 'idle',
@@ -200,6 +212,9 @@ function refreshState() {
       ? readCodexProjectTimelineEvents({ projectRoot: state.projectRoot, sessionFiles: resolved.data.sessionFiles })
       : [];
     const projectCodexSteps = codexSteps.filter((step) => stepBelongsToProject(step, state.projectRoot));
+    const observationResult = codexObservationMode === 'live' && resolved.status === 'ready'
+      ? projectObservation.observe(state.projectRoot, projectCodexSteps)
+      : null;
     state.turns = buildTimeline(
       projectCodexSteps,
       [],
@@ -222,6 +237,8 @@ function refreshState() {
       lastEventAt: latestTimestamp(codexSteps),
       lastSyncAt: null,
       error: resolved.status === 'ready' ? null : resolved.error,
+      codeState: observationResult?.status === 'ready' ? 'available' : 'unavailable',
+      projectObservation: observationResult,
     };
     if (!state.error) {
       state.error = null;
