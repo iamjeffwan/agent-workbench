@@ -10,8 +10,10 @@ const repoRoot = path.resolve(scriptDir, '..');
 
 const packages = [
   { name: 'security', root: 'packages/agent-workbench-security', build: false },
+  { name: 'observation-schema', root: 'packages/observation-schema', build: true },
   { name: 'timeline', root: 'packages/timeline', build: true },
   { name: 'codex-adapter', root: 'packages/codex-adapter', build: true },
+  { name: 'project-observation', root: 'packages/project-observation', build: true },
   { name: 'desktop', root: 'apps/desktop', build: true, vite: true },
 ];
 

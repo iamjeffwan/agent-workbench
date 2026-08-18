@@ -1,4 +1,6 @@
 export type { AgentToolStep, CodexRolloutLine } from './types.js';
+export { adaptCodexSession } from './adapt-session.js';
+export type { AdaptCodexSessionOptions } from './adapt-session.js';
 export { parseCodexRollout, parseCodexTimelineEvents } from './parse-rollout.js';
 export type {
   CodexTimelineEvent,

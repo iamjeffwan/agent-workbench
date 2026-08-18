@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workbench.local/schema/observation-session-v1-draft.json",
+  "title": "ObservationSession v1 draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "session", "turns", "capabilityManifest", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": "1.0-draft" },
+    "session": { "$ref": "#/$defs/session" },
+    "turns": { "type": "array", "items": { "$ref": "#/$defs/turn" } },
+    "capabilityManifest": { "$ref": "#/$defs/capabilityManifest" },
+    "diagnostics": { "$ref": "#/$defs/diagnostics" }
+  },
+  "$defs": {
+    "provenance": { "enum": ["direct", "derived", "supplemented"] },
+    "rawRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceFile", "line", "sourceType"],
+      "properties": {
+        "sourceFile": { "type": "string", "minLength": 1 },
+        "line": { "type": "integer", "minimum": 1 },
+        "sourceType": { "type": "string", "minLength": 1 },
+        "sourceId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "cachedInputTokens": { "type": "integer", "minimum": 0 },
+        "cacheWriteInputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "reasoningOutputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "turnId", "sequence", "type", "sourceAgent", "sourceVersion", "sourceEventType", "adapterVersion", "provenance", "fidelity", "rawRef"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "type": { "enum": ["message", "reasoning_summary", "tool_call", "tool_result", "file_change", "error", "lifecycle"] },
+        "timestamp": { "type": "string" },
+        "actor": { "enum": ["user", "assistant", "system", "tool"] },
+        "status": { "enum": ["started", "completed", "failed", "aborted", "pending"] },
+        "category": { "type": "string" },
+        "subtype": { "type": "string" },
+        "callId": { "type": "string" },
+        "sourceToolName": { "type": "string" },
+        "content": { "type": "string" },
+        "data": {},
+        "usage": { "$ref": "#/$defs/usage" },
+        "sourceAgent": { "enum": ["codex", "claude-code", "gemini-cli"] },
+        "sourceVersion": { "type": "string", "minLength": 1 },
+        "sourceEventType": { "type": "string", "minLength": 1 },
+        "adapterVersion": { "type": "string", "minLength": 1 },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "fieldProvenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } },
+        "fidelity": { "enum": ["full", "partial"] },
+        "rawRef": { "$ref": "#/$defs/rawRef" }
+      }
+    },
+    "turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turnId", "sequence", "sourceRef", "events"],
+      "properties": {
+        "turnId": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "sourceRef": { "$ref": "#/$defs/rawRef" },
+        "startedAt": { "type": "string" },
+        "endedAt": { "type": "string" },
+        "status": { "enum": ["completed", "aborted", "in_progress"] },
+        "model": { "type": "string" },
+        "cwd": { "type": "string" },
+        "durationMs": { "type": "number", "minimum": 0 },
+        "usage": { "$ref": "#/$defs/usage" },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/event" } }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "sourceAgent", "sourceVersion", "adapterVersion", "rawRef"],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1 },
+        "sourceAgent": { "enum": ["codex", "claude-code", "gemini-cli"] },
+        "sourceVersion": { "type": "string", "minLength": 1 },
+        "adapterVersion": { "type": "string", "minLength": 1 },
+        "rawRef": { "$ref": "#/$defs/rawRef" },
+        "startedAt": { "type": "string" },
+        "endedAt": { "type": "string" },
+        "cwd": { "type": "string" },
+        "model": { "type": "string" },
+        "provider": { "type": "string" },
+        "projectId": { "type": "string" },
+        "fieldProvenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } }
+      }
+    },
+    "capabilityManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "capabilities"],
+      "properties": {
+        "agent": { "enum": ["codex", "claude-code", "gemini-cli"] },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": { "enum": ["full", "partial", "derived", "unavailable"] }
+        }
+      }
+    },
+    "diagnosticEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawRef", "reason"],
+      "properties": {
+        "rawRef": { "$ref": "#/$defs/rawRef" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknownSourceEventCount", "parseErrorCount", "lossyEventCount", "unsupportedFieldCount", "entries"],
+      "properties": {
+        "unknownSourceEventCount": { "type": "integer", "minimum": 0 },
+        "parseErrorCount": { "type": "integer", "minimum": 0 },
+        "lossyEventCount": { "type": "integer", "minimum": 0 },
+        "unsupportedFieldCount": { "type": "integer", "minimum": 0 },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/diagnosticEntry" } }
+      }
+    }
+  }
+}

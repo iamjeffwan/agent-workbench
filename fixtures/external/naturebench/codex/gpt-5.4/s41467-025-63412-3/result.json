@@ -1,0 +1,29 @@
+{
+  "task_name": "s41467-025-63412-3",
+  "agent": "codex",
+  "model": "gpt-5.4",
+  "mode": "base",
+  "status": "success",
+  "duration": 4161.291850090027,
+  "returncode": 0,
+  "session_id": "019e0858-bb04-7042-855a-5c8247cb20c6",
+  "is_resume_run": true,
+  "resume_history": [
+    {
+      "run_idx": 0,
+      "is_resume_run": false,
+      "status": "success",
+      "returncode": 0,
+      "duration": 1177.3983659744263,
+      "started_at": "2026-05-08T16:06:58.085150+00:00"
+    },
+    {
+      "run_idx": 1,
+      "is_resume_run": true,
+      "status": "success",
+      "returncode": 0,
+      "duration": 2983.8934841156006,
+      "started_at": "2026-05-10T04:26:53.786865+00:00"
+    }
+  ]
+}
