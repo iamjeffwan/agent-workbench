@@ -1,8 +1,8 @@
 {
-  "name": "@agent-workbench/codex-adapter",
+  "name": "@agent-workbench/project-observation",
   "version": "0.0.1",
   "private": true,
-  "description": "Read-only Codex session adapter for Agent Workbench verification.",
+  "description": "Agent-independent TurnDiff and project environment derivation.",
   "type": "module",
   "exports": {
     ".": {
@@ -10,16 +10,14 @@
       "import": "./dist/index.js"
     }
   },
-  "bin": {
-    "codex-adapt": "./dist/cli.js"
-  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "adapt": "node dist/cli.js",
-    "test": "tsc -p tsconfig.json && node --test test/adapt-session.test.mjs test/history.test.mjs test/source-view.test.mjs"
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
-    "@agent-workbench/security": "workspace:*",
     "@agent-workbench/observation-schema": "workspace:*"
   },
   "devDependencies": {

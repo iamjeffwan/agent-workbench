@@ -1,0 +1,14 @@
+{"timestamp":"2026-08-18T08:00:00.000Z","type":"session_meta","payload":{"id":"agent-demo","cwd":"C:\\workspace\\demo","cli_version":"0.148.0"}}
+{"timestamp":"2026-08-18T08:00:00.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context><workspace_roots></workspace_roots><current_date>2026-08-18</current_date><timezone>UTC</timezone></environment_context>"}]}}
+{"timestamp":"2026-08-18T08:00:01.000Z","type":"turn_context","payload":{"turn_id":"native-one","cwd":"C:\\workspace\\demo"}}
+{"timestamp":"2026-08-18T08:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Implement the change"}]}}
+{"timestamp":"2026-08-18T08:00:02.100Z","type":"event_msg","payload":{"type":"user_message","message":"Implement the change"}}
+{"timestamp":"2026-08-18T08:00:03.000Z","type":"event_msg","payload":{"type":"sub_agent_activity","event_id":"activity-one","agent_thread_id":"thread-reviewer","agent_path":"/root/reviewer","kind":"started"}}
+{"timestamp":"2026-08-18T08:00:04.000Z","type":"inter_agent_communication_metadata","payload":{"trigger_turn":false}}
+{"timestamp":"2026-08-18T08:00:04.100Z","type":"response_item","payload":{"type":"agent_message","id":"message-one","author":"/root/reviewer","recipient":"/root","content":[{"type":"output_text","text":"Review complete"}]}}
+{"timestamp":"2026-08-18T08:00:05.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-08-18T08:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context><workspace_roots></workspace_roots><current_date>2026-08-18</current_date><timezone>UTC</timezone></environment_context>"}]}}
+{"timestamp":"2026-08-18T08:01:01.000Z","type":"turn_context","payload":{"turn_id":"native-two","cwd":"C:\\workspace\\demo"}}
+{"timestamp":"2026-08-18T08:01:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Review the result"}]}}
+{"timestamp":"2026-08-18T08:01:02.100Z","type":"event_msg","payload":{"type":"user_message","message":"Review the result"}}
+{"timestamp":"2026-08-18T08:01:03.000Z","type":"event_msg","payload":{"type":"task_complete"}}

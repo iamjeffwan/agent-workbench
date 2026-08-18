@@ -1,0 +1,20 @@
+{
+  "task_name": "s41592-024-02191-z",
+  "agent": "claude",
+  "model": "claude-opus-4.7",
+  "mode": "base",
+  "status": "timeout",
+  "duration": 16958.774319648743,
+  "returncode": -1,
+  "session_id": "c1728e8f-4edd-49b5-bf9c-61ea0a9fb248",
+  "resume_history": [
+    {
+      "run_idx": 0,
+      "is_resume_run": false,
+      "status": "timeout",
+      "returncode": -1,
+      "duration": 16958.774319648743,
+      "started_at": "2026-05-30T03:00:12.696970+00:00"
+    }
+  ]
+}
