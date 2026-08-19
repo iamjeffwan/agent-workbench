@@ -14,6 +14,7 @@ const packages = [
   { name: 'timeline', root: 'packages/timeline', build: true },
   { name: 'codex-adapter', root: 'packages/codex-adapter', build: true },
   { name: 'project-observation', root: 'packages/project-observation', build: true },
+  { name: 'review', root: 'packages/review', build: true },
   { name: 'desktop', root: 'apps/desktop', build: true, vite: true },
 ];
 
