@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workbench.local/schema/review-case-record/1.0-draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reviewCase", "runs", "judgements", "evidence", "annotations"],
+  "properties": {
+    "schemaVersion": { "const": "1.0-draft" },
+    "reviewCase": { "$ref": "#/$defs/reviewCase" },
+    "runs": { "type": "array", "items": { "$ref": "#/$defs/reviewRun" } },
+    "judgements": { "type": "array", "items": { "$ref": "#/$defs/judgement" } },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "annotations": { "type": "array", "items": { "$ref": "#/$defs/annotation" } }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "reviewCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "projectId", "sourceType", "turns", "createdAt"],
+      "properties": {
+        "caseId": { "$ref": "#/$defs/nonEmpty" },
+        "projectId": { "$ref": "#/$defs/nonEmpty" },
+        "sourceType": { "enum": ["task", "manual_turn_selection", "daily_auto", "re_review"] },
+        "sourceTaskId": { "$ref": "#/$defs/nonEmpty" },
+        "turns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/turnRef" } },
+        "createdAt": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "turnRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "turnId"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/nonEmpty" },
+        "turnId": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "promptVersion", "reviewPolicyVersion", "evidenceSchemaVersion"],
+      "properties": {
+        "provider": { "$ref": "#/$defs/nonEmpty" },
+        "model": { "$ref": "#/$defs/nonEmpty" },
+        "modelVersion": { "$ref": "#/$defs/nonEmpty" },
+        "promptVersion": { "$ref": "#/$defs/nonEmpty" },
+        "reviewPolicyVersion": { "$ref": "#/$defs/nonEmpty" },
+        "evidenceSchemaVersion": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "reviewRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "caseId", "invocation", "startedAt", "status"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/nonEmpty" },
+        "caseId": { "$ref": "#/$defs/nonEmpty" },
+        "invocation": { "$ref": "#/$defs/invocation" },
+        "startedAt": { "$ref": "#/$defs/nonEmpty" },
+        "completedAt": { "$ref": "#/$defs/nonEmpty" },
+        "status": { "enum": ["queued", "running", "completed", "failed", "cancelled"] },
+        "usage": { "$ref": "#/$defs/usage" },
+        "actualCost": { "type": "number", "minimum": 0 },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "failureReason": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "judgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["judgementId", "runId", "category", "title", "summary", "severity", "confidence", "impact", "alternativeExplanation", "recommendation", "reviewability", "createdAt"],
+      "properties": {
+        "judgementId": { "$ref": "#/$defs/nonEmpty" },
+        "runId": { "$ref": "#/$defs/nonEmpty" },
+        "category": { "enum": ["process_efficiency", "tool_usage", "repeated_failure", "architecture", "maintainability", "performance", "security", "testability"] },
+        "title": { "$ref": "#/$defs/nonEmpty" },
+        "summary": { "$ref": "#/$defs/nonEmpty" },
+        "severity": { "enum": ["low", "medium", "high", "critical"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "impact": { "$ref": "#/$defs/nonEmpty" },
+        "alternativeExplanation": { "$ref": "#/$defs/nonEmpty" },
+        "recommendation": { "$ref": "#/$defs/nonEmpty" },
+        "reviewability": { "enum": ["sufficient", "insufficient", "needs_raw", "needs_project_context"] },
+        "issueFingerprint": { "$ref": "#/$defs/nonEmpty" },
+        "createdAt": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "judgementId", "evidenceType", "targetType", "targetId", "description"],
+      "properties": {
+        "evidenceId": { "$ref": "#/$defs/nonEmpty" },
+        "judgementId": { "$ref": "#/$defs/nonEmpty" },
+        "evidenceType": { "$ref": "#/$defs/nonEmpty" },
+        "targetType": { "enum": ["event", "turn_diff", "project_profile", "environment_snapshot", "environment_delta", "raw_ref", "project_file"] },
+        "targetId": { "$ref": "#/$defs/nonEmpty" },
+        "description": { "$ref": "#/$defs/nonEmpty" },
+        "cachedExcerpt": { "type": "string" },
+        "cacheExpiresAt": { "$ref": "#/$defs/nonEmpty" },
+        "contentHash": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annotationId", "judgementId", "annotatorId", "verdict", "createdAt"],
+      "properties": {
+        "annotationId": { "$ref": "#/$defs/nonEmpty" },
+        "judgementId": { "$ref": "#/$defs/nonEmpty" },
+        "annotatorId": { "$ref": "#/$defs/nonEmpty" },
+        "verdict": { "enum": ["correct", "partially_correct", "incorrect"] },
+        "correctedCategory": { "enum": ["process_efficiency", "tool_usage", "repeated_failure", "architecture", "maintainability", "performance", "security", "testability"] },
+        "correctedSummary": { "$ref": "#/$defs/nonEmpty" },
+        "reason": { "$ref": "#/$defs/nonEmpty" },
+        "missingIssue": { "$ref": "#/$defs/nonEmpty" },
+        "createdAt": { "$ref": "#/$defs/nonEmpty" }
+      }
+    }
+  }
+}
