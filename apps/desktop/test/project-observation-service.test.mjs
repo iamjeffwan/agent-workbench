@@ -104,13 +104,49 @@ test('retries an after-state capture failure without replacing the before state'
   });
 
   service.observe(fixture.projectRoot, [contextEvent()]);
-  assert.equal(service.observe(fixture.projectRoot, [contextEvent(), completedEvent()]).data.error, 1);
+  const failed = service.observe(fixture.projectRoot, [contextEvent(), completedEvent()]);
+  assert.equal(failed.data.error, 1);
+  const failedTurn = Object.values(service.read(fixture.projectRoot).data.turns)[0];
+  assert.equal(failedTurn.stage, 'after_capture');
+  assert.equal(failedTurn.after, undefined);
   failAfter = false;
   const retried = service.observe(fixture.projectRoot, [contextEvent(), completedEvent()]);
   assert.equal(retried.data.completed, 1);
   const turn = Object.values(service.read(fixture.projectRoot).data.turns)[0];
   assert.equal(turn.facts.turnDiff.baseRef, 'tree-1');
   assert.equal(turn.facts.turnDiff.resultRef, 'tree-3');
+});
+
+test('retries fact derivation without recapturing the after state', () => {
+  const fixture = createFixture();
+  let captureCount = 0;
+  let shouldFail = true;
+  const service = createService(fixture, {
+    captureState(context) {
+      captureCount += 1;
+      return fakeCapture(context, `tree-${captureCount}`);
+    },
+    deriveFacts(context, before, after) {
+      if (shouldFail) throw new Error('temporary diff failure');
+      return fakeFacts(context, before, after);
+    },
+  });
+
+  service.observe(fixture.projectRoot, [contextEvent()]);
+  const failed = service.observe(fixture.projectRoot, [contextEvent(), completedEvent()]);
+  assert.equal(failed.data.error, 1);
+  const failedTurn = Object.values(service.read(fixture.projectRoot).data.turns)[0];
+  assert.equal(failedTurn.stage, 'derive');
+  assert.equal(failedTurn.after.snapshot.git.treeHash, 'tree-2');
+  assert.equal(captureCount, 2);
+
+  shouldFail = false;
+  const retried = service.observe(fixture.projectRoot, [contextEvent(), completedEvent()]);
+  assert.equal(retried.data.completed, 1);
+  assert.equal(captureCount, 2);
+  const turn = Object.values(service.read(fixture.projectRoot).data.turns)[0];
+  assert.equal(turn.facts.turnDiff.baseRef, 'tree-1');
+  assert.equal(turn.facts.turnDiff.resultRef, 'tree-2');
 });
 
 test('does not confuse turns from different sessions', () => {

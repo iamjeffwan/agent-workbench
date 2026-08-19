@@ -153,8 +153,24 @@ function startTurn(projectId, turn, captureState, capturedAt) {
 function completeTurn(store, key, turn, existing, captureState, deriveFacts, now) {
   const capturedAt = now();
   const context = contextFor(store.projectId, turn);
+  let after = existing.after;
+
+  if (!after) {
+    try {
+      after = captureState(context, capturedAt);
+    } catch (error) {
+      store.turns[key] = {
+        ...existing,
+        status: 'error',
+        completedAt: capturedAt.toISOString(),
+        stage: 'after_capture',
+        error: errorMessage(error, 'Unable to capture the state after the turn.'),
+      };
+      return true;
+    }
+  }
+
   try {
-    const after = captureState(context, capturedAt);
     const facts = deriveFacts(context, existing.before, after, capturedAt);
     store.turns[key] = {
       ...existing,
@@ -169,8 +185,9 @@ function completeTurn(store, key, turn, existing, captureState, deriveFacts, now
       ...existing,
       status: 'error',
       completedAt: capturedAt.toISOString(),
-      stage: 'after',
+      stage: 'derive',
       error: errorMessage(error, 'Unable to derive project changes for the turn.'),
+      after,
     };
   }
   return true;
