@@ -5,18 +5,26 @@ import {
   createCodexCliReviewModelAdapter,
   createInMemoryReviewStore,
   createReviewExecutor,
+  enrichReviewEvidencePackageFromProject,
 } from '../packages/review/dist/index.js';
 
 const options = parseArgs(process.argv.slice(2).filter(argument => argument !== '--'));
 if (!options.case || !options.evidence) {
-  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--provider <id> --base-url <url> --api-key-env <name>]');
+  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--project-root <directory>] [--provider <id> --base-url <url> --api-key-env <name>]');
 }
 if (options.serviceTier && !['fast', 'flex'].includes(options.serviceTier)) {
   throw new Error('The service tier must be fast or flex.');
 }
 
 const reviewCase = JSON.parse(await fs.readFile(path.resolve(options.case), 'utf8'));
-const evidencePackage = JSON.parse(await fs.readFile(path.resolve(options.evidence), 'utf8'));
+let evidencePackage = JSON.parse(await fs.readFile(path.resolve(options.evidence), 'utf8'));
+if (options.projectRoot) {
+  evidencePackage = await enrichReviewEvidencePackageFromProject({
+    evidencePackage,
+    repositoryRoot: path.resolve(options.projectRoot),
+    ...(options.revision ? { revision: options.revision } : {}),
+  });
+}
 const customProvider = customProviderFrom(options);
 const store = createInMemoryReviewStore();
 store.createCase(reviewCase);

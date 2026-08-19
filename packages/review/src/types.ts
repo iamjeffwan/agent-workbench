@@ -18,6 +18,7 @@ export type EvidenceTargetType =
   | 'project_profile'
   | 'environment_snapshot'
   | 'environment_delta'
+  | 'project_diff'
   | 'raw_ref'
   | 'project_file';
 

@@ -208,7 +208,7 @@ export const REVIEW_MODEL_OUTPUT_SCHEMA: Record<string, unknown> = {
               required: ['evidenceType', 'targetType', 'targetId', 'description', 'cachedExcerpt', 'contentHash'],
               properties: {
                 evidenceType: { type: 'string', minLength: 1 },
-                targetType: { type: 'string', enum: ['event', 'turn_diff', 'project_profile', 'environment_snapshot', 'environment_delta', 'raw_ref', 'project_file'] },
+                targetType: { type: 'string', enum: ['event', 'turn_diff', 'project_profile', 'environment_snapshot', 'environment_delta', 'project_diff', 'raw_ref', 'project_file'] },
                 targetId: { type: 'string', minLength: 1 },
                 description: { type: 'string', minLength: 1 },
                 cachedExcerpt: { type: 'string' },
@@ -309,6 +309,9 @@ function assertEvidenceTargets(output: ReviewModelOutput, evidencePackage: Revie
       ...context.projectProfile.mcpFiles,
     ]) targets.get('project_file')?.add(file);
   }
+  const projectContext = evidencePackage.projectContext;
+  if (projectContext?.diff) targets.get('project_diff')?.add(projectContext.diff.targetId);
+  for (const file of projectContext?.files ?? []) targets.get('project_file')?.add(file.path);
   for (const judgement of output.judgements) {
     for (const evidence of judgement.evidence) {
       if (!targets.get(evidence.targetType)?.has(evidence.targetId)) {
@@ -366,4 +369,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const CATEGORIES: ReviewCategory[] = ['process_efficiency', 'tool_usage', 'repeated_failure', 'architecture', 'maintainability', 'performance', 'security', 'testability'];
 const SEVERITIES: ReviewSeverity[] = ['low', 'medium', 'high', 'critical'];
 const REVIEWABILITIES: Reviewability[] = ['sufficient', 'insufficient', 'needs_raw', 'needs_project_context'];
-const TARGET_TYPES: EvidenceTargetType[] = ['event', 'turn_diff', 'project_profile', 'environment_snapshot', 'environment_delta', 'raw_ref', 'project_file'];
+const TARGET_TYPES: EvidenceTargetType[] = ['event', 'turn_diff', 'project_profile', 'environment_snapshot', 'environment_delta', 'project_diff', 'raw_ref', 'project_file'];

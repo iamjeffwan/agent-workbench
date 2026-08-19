@@ -42,6 +42,17 @@ export type {
   ReviewEvidenceTurn,
   ReviewTurnProjectContext,
 } from './evidence.js';
+export { enrichReviewEvidencePackageFromProject } from './project-context.js';
+export type {
+  EnrichReviewEvidencePackageInput,
+  ReviewProjectContext,
+  ReviewProjectContextLimits,
+  ReviewProjectContextOmission,
+  ReviewProjectContextOmissionReason,
+  ReviewProjectDiff,
+  ReviewProjectFile,
+  ReviewProjectFileRole,
+} from './project-context.js';
 export {
   assertReviewCaseRecord,
   assertReviewEvidencePackage,

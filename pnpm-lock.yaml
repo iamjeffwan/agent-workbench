@@ -159,6 +159,9 @@ importers:
       '@agent-workbench/project-observation':
         specifier: workspace:*
         version: link:../project-observation
+      '@agent-workbench/security':
+        specifier: workspace:*
+        version: link:../agent-workbench-security
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

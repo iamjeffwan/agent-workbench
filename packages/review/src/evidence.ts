@@ -16,6 +16,7 @@ import type {
   Reviewability,
   ReviewTurnRef,
 } from './types.js';
+import type { ReviewProjectContext } from './project-context.js';
 
 export const REVIEW_EVIDENCE_SCHEMA_VERSION = 'review-evidence-1' as const;
 
@@ -75,6 +76,7 @@ export type ReviewEvidencePackage = {
   reviewability: Reviewability;
   gaps: ReviewEvidenceGap[];
   turns: ReviewEvidenceTurn[];
+  projectContext?: ReviewProjectContext;
 };
 
 export type BuildReviewEvidencePackageInput = {
