@@ -1,5 +1,23 @@
 export { createInMemoryReviewStore } from './store.js';
-export { assertReviewCaseRecord, validateReviewCaseRecord } from './validate.js';
+export {
+  REVIEW_EVIDENCE_SCHEMA_VERSION,
+  buildReviewEvidencePackage,
+} from './evidence.js';
+export type {
+  BuildReviewEvidencePackageInput,
+  ProjectObservationEvidence,
+  ReviewEvidenceGap,
+  ReviewEvidenceGapCode,
+  ReviewEvidencePackage,
+  ReviewEvidenceTurn,
+  ReviewTurnProjectContext,
+} from './evidence.js';
+export {
+  assertReviewCaseRecord,
+  assertReviewEvidencePackage,
+  validateReviewCaseRecord,
+  validateReviewEvidencePackage,
+} from './validate.js';
 export type {
   AnnotationVerdict,
   Evidence,

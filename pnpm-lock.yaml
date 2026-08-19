@@ -152,6 +152,13 @@ importers:
         version: 5.7.2
 
   packages/review:
+    dependencies:
+      '@agent-workbench/observation-schema':
+        specifier: workspace:*
+        version: link:../observation-schema
+      '@agent-workbench/project-observation':
+        specifier: workspace:*
+        version: link:../project-observation
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
