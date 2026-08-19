@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-workbench.local/schema/review-evidence-package/1.0-draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceSchemaVersion", "caseId", "projectId", "builtAt", "reviewability", "gaps", "turns"],
+  "properties": {
+    "schemaVersion": { "const": "1.0-draft" },
+    "evidenceSchemaVersion": { "const": "review-evidence-1" },
+    "caseId": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "builtAt": { "type": "string", "minLength": 1 },
+    "reviewability": { "enum": ["sufficient", "insufficient", "needs_raw", "needs_project_context"] },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "sessionId", "turnId", "description"],
+        "properties": {
+          "code": { "enum": ["missing_turn", "missing_user_input", "project_observation_unavailable"] },
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turnId": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sessionId", "turnId", "sequence", "status", "userInput", "events", "source"],
+        "properties": {
+          "sessionId": { "type": "string", "minLength": 1 },
+          "turnId": { "type": "string", "minLength": 1 },
+          "sequence": { "type": "integer", "minimum": 0 },
+          "status": { "enum": ["completed", "aborted", "in_progress"] },
+          "userInput": { "type": "string" },
+          "events": { "type": "array", "items": { "type": "object" } },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["agent", "sourceVersion", "adapterVersion", "capabilityManifest"],
+            "properties": {
+              "agent": { "type": "string", "minLength": 1 },
+              "sourceVersion": { "type": "string", "minLength": 1 },
+              "adapterVersion": { "type": "string", "minLength": 1 },
+              "model": { "type": "string", "minLength": 1 },
+              "capabilityManifest": { "type": "object" }
+            }
+          },
+          "projectContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["turnDiff", "projectProfile", "environmentSnapshot", "environmentDelta"],
+            "properties": {
+              "turnDiff": { "type": "object" },
+              "projectProfile": { "type": "object" },
+              "environmentSnapshot": { "type": "object" },
+              "environmentDelta": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

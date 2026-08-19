@@ -5,11 +5,15 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from './types.js';
+import type { ReviewEvidencePackage } from './evidence.js';
 
 type JsonSchema = Record<string, unknown>;
 
 const reviewSchema = JSON.parse(
   fs.readFileSync(new URL('../schema/review-case-record.schema.json', import.meta.url), 'utf8'),
+) as JsonSchema;
+const evidenceSchema = JSON.parse(
+  fs.readFileSync(new URL('../schema/review-evidence-package.schema.json', import.meta.url), 'utf8'),
 ) as JsonSchema;
 
 export function validateReviewCaseRecord(value: unknown): ValidationResult {
@@ -24,6 +28,21 @@ export function assertReviewCaseRecord(value: unknown): asserts value is ReviewC
   if (!result.valid) {
     throw new TypeError(
       `Invalid ReviewCaseRecord: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`,
+    );
+  }
+}
+
+export function validateReviewEvidencePackage(value: unknown): ValidationResult {
+  const errors: ValidationIssue[] = [];
+  validateValue(value, evidenceSchema, '$', errors, evidenceSchema);
+  return errors.length === 0 ? { valid: true, errors: [] } : { valid: false, errors };
+}
+
+export function assertReviewEvidencePackage(value: unknown): asserts value is ReviewEvidencePackage {
+  const result = validateReviewEvidencePackage(value);
+  if (!result.valid) {
+    throw new TypeError(
+      `Invalid ReviewEvidencePackage: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`,
     );
   }
 }
