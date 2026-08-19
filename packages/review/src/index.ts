@@ -1,5 +1,34 @@
 export { createInMemoryReviewStore } from './store.js';
 export {
+  DEFAULT_REVIEW_SYSTEM_PROMPT,
+  REVIEW_MODEL_OUTPUT_SCHEMA,
+  assertReviewModelOutput,
+  createReviewExecutor,
+} from './execution.js';
+export type {
+  ExecuteReviewInput,
+  ReviewExecutor,
+  ReviewExecutorOptions,
+  ReviewModelAdapter,
+  ReviewModelDescriptor,
+  ReviewModelEvidence,
+  ReviewModelJudgement,
+  ReviewModelOutput,
+  ReviewModelRequest,
+  ReviewModelResponse,
+} from './execution.js';
+export { createInMemoryReviewModelAdapter } from './adapters/in-memory.js';
+export type {
+  InMemoryReviewModelAdapter,
+  InMemoryReviewModelAdapterOptions,
+} from './adapters/in-memory.js';
+export { createCodexCliReviewModelAdapter } from './adapters/codex-cli.js';
+export type {
+  CodexCliCommand,
+  CodexCliCommandRunner,
+  CodexCliReviewModelAdapterOptions,
+} from './adapters/codex-cli.js';
+export {
   REVIEW_EVIDENCE_SCHEMA_VERSION,
   buildReviewEvidencePackage,
 } from './evidence.js';
