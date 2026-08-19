@@ -10,7 +10,8 @@
       "import": "./dist/index.js"
     },
     "./schema": "./schema/review-case-record.schema.json",
-    "./evidence-schema": "./schema/review-evidence-package.schema.json"
+    "./evidence-schema": "./schema/review-evidence-package.schema.json",
+    "./model-output-schema": "./schema/review-model-output.schema.json"
   },
   "files": [
     "dist",
