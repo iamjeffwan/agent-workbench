@@ -93,13 +93,7 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
     },
   });
 
-  const response = await adapter.review({
-    runId: 'run-codex-1',
-    reviewCase: selectedCase(),
-    evidencePackage: evidencePackage(),
-    systemPrompt: 'Review only supplied evidence.',
-    outputSchema: { type: 'object' },
-  });
+  const response = await adapter.review(codexRequest('run-codex-1'));
 
   assert.equal(adapter.descriptor.model, 'gpt-5.6-sol');
   assert.deepEqual(response.output, modelOutput());
@@ -110,6 +104,53 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
   assert.ok(commands[0].args.includes('service_tier="fast"'));
   assert.ok(commands[0].args.includes('--ephemeral'));
   assert.ok(commands[0].input.includes('Evidence package'));
+});
+
+test('configures a custom Codex provider using only an API key environment variable name', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'review-custom-provider-'));
+  const commands = [];
+  const adapter = createCodexCliReviewModelAdapter({
+    artifactDirectory: root,
+    workingDirectory: process.cwd(),
+    customProvider: {
+      id: 'third_party',
+      name: 'Review gateway',
+      baseUrl: 'https://gateway.example.test/v1/',
+      apiKeyEnv: 'REVIEW_GATEWAY_API_KEY',
+    },
+    runCommand: async command => {
+      commands.push(command);
+      const outputPath = command.args[command.args.indexOf('--output-last-message') + 1];
+      await writeFile(outputPath, JSON.stringify(modelOutput()), 'utf8');
+    },
+  });
+
+  await adapter.review(codexRequest('run-provider-1'));
+
+  const args = commands[0].args.join(' ');
+  assert.equal(adapter.descriptor.provider, 'third_party');
+  assert.equal(commands[0].requiredEnvironmentVariable, 'REVIEW_GATEWAY_API_KEY');
+  assert.match(args, /model_provider="third_party"/);
+  assert.match(args, /base_url="https:\/\/gateway\.example\.test\/v1"/);
+  assert.match(args, /env_key="REVIEW_GATEWAY_API_KEY"/);
+  assert.match(args, /supports_websockets=false/);
+  assert.doesNotMatch(args, /secret-value/);
+});
+
+test('rejects unsafe custom Codex provider configuration before execution', () => {
+  const common = { artifactDirectory: '.', workingDirectory: '.' };
+  assert.throws(() => createCodexCliReviewModelAdapter({
+    ...common,
+    customProvider: { id: 'openai', baseUrl: 'https://example.test', apiKeyEnv: 'KEY' },
+  }), /reserved/);
+  assert.throws(() => createCodexCliReviewModelAdapter({
+    ...common,
+    customProvider: { id: 'third_party', baseUrl: 'http://remote.example.test', apiKeyEnv: 'KEY' },
+  }), /HTTPS/);
+  assert.throws(() => createCodexCliReviewModelAdapter({
+    ...common,
+    customProvider: { id: 'third_party', baseUrl: 'https://example.test', apiKeyEnv: 'actual-key-value' },
+  }), /variable name is invalid/);
 });
 
 async function runWithDescriptor(descriptor) {
@@ -137,6 +178,16 @@ function executionInput(reviewCase) {
     evidencePackage: evidencePackage(),
     promptVersion: 'review-prompt-1',
     reviewPolicyVersion: 'review-policy-1',
+  };
+}
+
+function codexRequest(runId) {
+  return {
+    runId,
+    reviewCase: selectedCase(),
+    evidencePackage: evidencePackage(),
+    systemPrompt: 'Review only supplied evidence.',
+    outputSchema: { type: 'object' },
   };
 }
 

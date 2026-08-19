@@ -26,6 +26,7 @@ export { createCodexCliReviewModelAdapter } from './adapters/codex-cli.js';
 export type {
   CodexCliCommand,
   CodexCliCommandRunner,
+  CodexCliCustomProvider,
   CodexCliReviewModelAdapterOptions,
 } from './adapters/codex-cli.js';
 export {

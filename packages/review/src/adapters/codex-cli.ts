@@ -16,6 +16,7 @@ export type CodexCliCommand = {
   input: string;
   stdoutPath: string;
   stderrPath: string;
+  requiredEnvironmentVariable?: string;
 };
 
 export type CodexCliCommandRunner = (command: CodexCliCommand) => Promise<void>;
@@ -27,7 +28,16 @@ export type CodexCliReviewModelAdapterOptions = {
   modelVersion?: string;
   executable?: string;
   serviceTier?: 'fast' | 'flex';
+  customProvider?: CodexCliCustomProvider;
   runCommand?: CodexCliCommandRunner;
+};
+
+export type CodexCliCustomProvider = {
+  id: string;
+  name?: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  supportsWebSockets?: boolean;
 };
 
 export function createCodexCliReviewModelAdapter(
@@ -36,9 +46,12 @@ export function createCodexCliReviewModelAdapter(
   const model = options.model ?? 'gpt-5.6-sol';
   const executable = options.executable ?? defaultCodexExecutable();
   const runCommand = options.runCommand ?? runCodexCommand;
+  const customProvider = options.customProvider
+    ? validateCustomProvider(options.customProvider)
+    : undefined;
   return {
     descriptor: {
-      provider: 'openai',
+      provider: customProvider?.id ?? 'openai',
       model,
       ...(options.modelVersion ? { modelVersion: options.modelVersion } : {}),
       transport: 'codex-cli',
@@ -57,6 +70,7 @@ export function createCodexCliReviewModelAdapter(
         executable,
         args: [
           'exec',
+          ...(customProvider ? customProviderArguments(customProvider) : []),
           ...(options.serviceTier ? ['--config', `service_tier="${options.serviceTier}"`] : []),
           '--model', model,
           '--sandbox', 'read-only',
@@ -71,6 +85,7 @@ export function createCodexCliReviewModelAdapter(
         input: buildPrompt(request),
         stdoutPath,
         stderrPath,
+        ...(customProvider ? { requiredEnvironmentVariable: customProvider.apiKeyEnv } : {}),
       });
       const output = JSON.parse(await readFile(outputPath, 'utf8')) as unknown;
       return { output };
@@ -84,6 +99,10 @@ function buildPrompt(request: ReviewModelRequest): string {
 
 function runCodexCommand(command: CodexCliCommand): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (command.requiredEnvironmentVariable && !process.env[command.requiredEnvironmentVariable]) {
+      reject(new Error(`Required API key environment variable is not set: ${command.requiredEnvironmentVariable}`));
+      return;
+    }
     const powershellScript = process.platform === 'win32' && command.executable.toLowerCase().endsWith('.ps1');
     const child = execFileCallback(
       powershellScript ? 'powershell.exe' : command.executable,
@@ -108,6 +127,60 @@ function runCodexCommand(command: CodexCliCommand): Promise<void> {
     );
     child.stdin?.end(command.input);
   });
+}
+
+function customProviderArguments(provider: CodexCliCustomProvider): string[] {
+  const prefix = `model_providers.${provider.id}`;
+  return [
+    '--config', `model_provider=${tomlString(provider.id)}`,
+    '--config', `${prefix}.name=${tomlString(provider.name ?? provider.id)}`,
+    '--config', `${prefix}.base_url=${tomlString(provider.baseUrl)}`,
+    '--config', `${prefix}.env_key=${tomlString(provider.apiKeyEnv)}`,
+    '--config', `${prefix}.wire_api="responses"`,
+    '--config', `${prefix}.requires_openai_auth=false`,
+    '--config', `${prefix}.supports_websockets=${provider.supportsWebSockets ?? false}`,
+  ];
+}
+
+function validateCustomProvider(provider: CodexCliCustomProvider): CodexCliCustomProvider {
+  const id = provider.id.trim();
+  const apiKeyEnv = provider.apiKeyEnv.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new TypeError('Custom provider id may contain only letters, numbers, underscores, and hyphens.');
+  }
+  if (['openai', 'ollama', 'lmstudio'].includes(id.toLowerCase())) {
+    throw new TypeError(`Custom provider id is reserved: ${id}`);
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
+    throw new TypeError('Custom provider API key environment variable name is invalid.');
+  }
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(provider.baseUrl);
+  } catch {
+    throw new TypeError('Custom provider base URL is invalid.');
+  }
+  const localHttp = baseUrl.protocol === 'http:'
+    && ['localhost', '127.0.0.1', '::1'].includes(baseUrl.hostname);
+  if (baseUrl.protocol !== 'https:' && !localHttp) {
+    throw new TypeError('Custom provider base URL must use HTTPS, except for localhost.');
+  }
+  if (baseUrl.username || baseUrl.password) {
+    throw new TypeError('Custom provider base URL must not contain credentials.');
+  }
+  return {
+    id,
+    ...(provider.name?.trim() ? { name: provider.name.trim() } : {}),
+    baseUrl: baseUrl.toString().replace(/\/$/, ''),
+    apiKeyEnv,
+    ...(provider.supportsWebSockets !== undefined
+      ? { supportsWebSockets: provider.supportsWebSockets }
+      : {}),
+  };
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
 }
 
 function defaultCodexExecutable(): string {
