@@ -113,9 +113,10 @@ function runCodexCommand(command: CodexCliCommand): Promise<void> {
 function defaultCodexExecutable(): string {
   if (process.platform !== 'win32') return 'codex';
   const candidates = [
+    process.env.CODEX_CLI_PATH,
+    process.env.APPDATA && path.join(process.env.APPDATA, 'npm', 'codex.ps1'),
     process.env.PNPM_HOME && path.join(process.env.PNPM_HOME, 'codex.ps1'),
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'pnpm', 'codex.ps1'),
-    process.env.APPDATA && path.join(process.env.APPDATA, 'npm', 'codex.ps1'),
   ].filter((value): value is string => Boolean(value));
   return candidates.find(candidate => existsSync(candidate)) ?? 'codex.ps1';
 }

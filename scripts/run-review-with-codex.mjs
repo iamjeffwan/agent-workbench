@@ -23,6 +23,7 @@ const adapter = createCodexCliReviewModelAdapter({
   artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
   workingDirectory: process.cwd(),
   model: options.model ?? 'gpt-5.6-sol',
+  ...(options.executable ? { executable: path.resolve(options.executable) } : {}),
   ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
 });
 const executor = createReviewExecutor({ store, adapter });

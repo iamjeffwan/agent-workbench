@@ -84,6 +84,7 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
   const adapter = createCodexCliReviewModelAdapter({
     artifactDirectory: root,
     workingDirectory: process.cwd(),
+    executable: path.join(root, 'codex.ps1'),
     serviceTier: 'fast',
     runCommand: async command => {
       commands.push(command);
@@ -102,6 +103,7 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
 
   assert.equal(adapter.descriptor.model, 'gpt-5.6-sol');
   assert.deepEqual(response.output, modelOutput());
+  assert.equal(commands[0].executable, path.join(root, 'codex.ps1'));
   assert.ok(commands[0].args.includes('read-only'));
   assert.ok(commands[0].args.includes('--skip-git-repo-check'));
   assert.ok(commands[0].args.includes(path.join(root, 'run-codex-1')));
