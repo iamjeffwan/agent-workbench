@@ -54,6 +54,27 @@ test('reads an explicit revision without mixing in later working tree content', 
   assert.ok(!JSON.stringify(result.projectContext).includes('working tree'));
 });
 
+test('collects changed source, matching test, and diff evidence from an explicit revision', async () => {
+  const root = await repositoryFixture();
+  await writeFile(path.join(root, 'src/parser.ts'), 'export const parse = () => "revision";\n');
+  git(root, ['add', 'src/parser.ts']);
+  git(root, ['commit', '-m', 'change parser']);
+  const revision = git(root, ['rev-parse', 'HEAD']).trim();
+
+  const result = await enrichReviewEvidencePackageFromProject({
+    evidencePackage: evidencePackage(),
+    repositoryRoot: root,
+    revision,
+  });
+
+  assert.equal(result.reviewability, 'sufficient');
+  assert.equal(result.projectContext.scope, 'revision');
+  assert.match(result.projectContext.files.find(file => file.path === 'src/parser.ts').content, /revision/);
+  assert.deepEqual(result.projectContext.files.find(file => file.path === 'src/parser.ts').roles, ['changed']);
+  assert.ok(result.projectContext.files.some(file => file.path === 'test/parser.test.mjs'));
+  assert.match(result.projectContext.diff.content, /revision/);
+});
+
 test('records truncation and rejects unsafe limits or a nested project path', async () => {
   const root = await repositoryFixture();
   await writeFile(path.join(root, 'src/parser.ts'), `export const text = "${'x'.repeat(200)}";\n`);

@@ -227,11 +227,17 @@ async function collectDiff(
   const observed = evidencePackage.turns
     .map(turn => turn.projectContext?.turnDiff.unifiedDiff)
     .filter((value): value is string => Boolean(value));
-  const raw = observed.length > 0
-    ? filterDiffByPaths(observed.join('\n'), paths)
-    : revision
-      ? ''
-      : await git(repositoryRoot, ['diff', '--no-ext-diff', '--unified=3', 'HEAD', '--', ...paths], true);
+  let raw: string;
+  if (observed.length > 0) {
+    raw = filterDiffByPaths(observed.join('\n'), paths);
+  } else if (revision) {
+    const parent = await firstParentRevision(repositoryRoot, revision);
+    raw = parent
+      ? await git(repositoryRoot, ['diff', '--no-ext-diff', '--unified=3', parent, revision, '--', ...paths], true)
+      : '';
+  } else {
+    raw = await git(repositoryRoot, ['diff', '--no-ext-diff', '--unified=3', 'HEAD', '--', ...paths], true);
+  }
   if (!raw) return null;
   const redacted = redactCredentialText(raw, { context: 'source' });
   return {
@@ -285,7 +291,15 @@ async function listProjectFiles(repositoryRoot: string, revision: string | undef
 }
 
 async function changedProjectFiles(repositoryRoot: string, revision: string | undefined): Promise<string[]> {
-  if (revision) return [];
+  if (revision) {
+    const parent = await firstParentRevision(repositoryRoot, revision);
+    if (!parent) return listProjectFiles(repositoryRoot, revision);
+    const changed = await git(repositoryRoot, ['diff', '--name-only', '-z', parent, revision, '--'], true);
+    return changed.split('\0')
+      .filter(Boolean)
+      .map(normalizeRelativePath)
+      .filter(file => Boolean(file) && !isExcludedPath(file));
+  }
   const [changed, untracked] = await Promise.all([
     git(repositoryRoot, ['diff', '--name-only', '-z', 'HEAD', '--'], true),
     git(repositoryRoot, ['ls-files', '--others', '--exclude-standard', '-z'], true),
@@ -294,6 +308,13 @@ async function changedProjectFiles(repositoryRoot: string, revision: string | un
     .filter(Boolean)
     .map(normalizeRelativePath)
     .filter(file => Boolean(file) && !isExcludedPath(file));
+}
+
+async function firstParentRevision(repositoryRoot: string, revision: string): Promise<string | undefined> {
+  const parents = (await git(repositoryRoot, ['show', '-s', '--format=%P', revision]))
+    .split(/\s+/)
+    .filter(Boolean);
+  return parents[0];
 }
 
 async function readSafeFile(repositoryRoot: string, relativePath: string): Promise<Buffer> {
