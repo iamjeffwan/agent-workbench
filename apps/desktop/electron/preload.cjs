@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('workbench', {
   createTask: (input) => ipcRenderer.invoke('tasks:create', input),
   discussTask: (taskId, message) => ipcRenderer.invoke('tasks:discuss', taskId, message),
   saveTaskScript: (taskId, input) => ipcRenderer.invoke('tasks:saveScript', taskId, input),
+  prepareReviewFromTask: (taskId, options) => ipcRenderer.invoke('review:prepareFromTask', taskId, options),
+  prepareReviewFromTurns: (input) => ipcRenderer.invoke('review:prepareFromTurns', input),
   listSyncTasks: (projectRoot) => ipcRenderer.invoke('sync:listTasks', projectRoot),
   readSyncTask: (projectRoot, taskId) => ipcRenderer.invoke('sync:readTask', projectRoot, taskId),
   addTaskToSync: (taskId) => ipcRenderer.invoke('sync:addTask', taskId),
