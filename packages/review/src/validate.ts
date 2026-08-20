@@ -5,11 +5,15 @@ import type {
   ValidationIssue,
   ValidationResult,
 } from './types.js';
+import type { ReviewEvidencePackage } from './evidence.js';
 
 type JsonSchema = Record<string, unknown>;
 
 const reviewSchema = JSON.parse(
   fs.readFileSync(new URL('../schema/review-case-record.schema.json', import.meta.url), 'utf8'),
+) as JsonSchema;
+const evidenceSchema = JSON.parse(
+  fs.readFileSync(new URL('../schema/review-evidence-package.schema.json', import.meta.url), 'utf8'),
 ) as JsonSchema;
 
 export function validateReviewCaseRecord(value: unknown): ValidationResult {
@@ -24,6 +28,21 @@ export function assertReviewCaseRecord(value: unknown): asserts value is ReviewC
   if (!result.valid) {
     throw new TypeError(
       `Invalid ReviewCaseRecord: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`,
+    );
+  }
+}
+
+export function validateReviewEvidencePackage(value: unknown): ValidationResult {
+  const errors: ValidationIssue[] = [];
+  validateValue(value, evidenceSchema, '$', errors, evidenceSchema);
+  return errors.length === 0 ? { valid: true, errors: [] } : { valid: false, errors };
+}
+
+export function assertReviewEvidencePackage(value: unknown): asserts value is ReviewEvidencePackage {
+  const result = validateReviewEvidencePackage(value);
+  if (!result.valid) {
+    throw new TypeError(
+      `Invalid ReviewEvidencePackage: ${result.errors.map(error => `${error.path} ${error.message}`).join('; ')}`,
     );
   }
 }
@@ -96,9 +115,13 @@ function validateValue(
     issue(errors, path, 'is not an allowed value');
   }
 
-  const expectedType = typeof resolved.type === 'string' ? resolved.type : undefined;
-  if (expectedType && !matchesType(value, expectedType)) {
-    issue(errors, path, `must be ${expectedType}`);
+  const expectedTypes = typeof resolved.type === 'string'
+    ? [resolved.type]
+    : Array.isArray(resolved.type)
+      ? resolved.type.filter((item): item is string => typeof item === 'string')
+      : [];
+  if (expectedTypes.length > 0 && !expectedTypes.some(expected => matchesType(value, expected))) {
+    issue(errors, path, `must be ${expectedTypes.join(' or ')}`);
     return;
   }
   if (typeof value === 'string' && typeof resolved.minLength === 'number' && value.length < resolved.minLength) {
@@ -155,6 +178,8 @@ function matchesType(value: unknown, expected: string): boolean {
   if (expected === 'integer') return Number.isInteger(value);
   if (expected === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (expected === 'string') return typeof value === 'string';
+  if (expected === 'boolean') return typeof value === 'boolean';
+  if (expected === 'null') return value === null;
   return true;
 }
 
