@@ -57,7 +57,7 @@ export function createCodexCliReviewModelAdapter(
       transport: 'codex-cli',
     },
     async review(request): Promise<ReviewModelResponse> {
-      const runDirectory = path.join(options.artifactDirectory, request.runId);
+      const runDirectory = artifactRunDirectory(options.artifactDirectory, request.runId);
       const schemaPath = path.join(runDirectory, 'output-schema.json');
       const requestPath = path.join(runDirectory, 'request.json');
       const outputPath = path.join(runDirectory, 'last-message.json');
@@ -181,6 +181,18 @@ function validateCustomProvider(provider: CodexCliCustomProvider): CodexCliCusto
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
+}
+
+function artifactRunDirectory(artifactDirectory: string, runId: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(runId)) {
+    throw new TypeError('Review run identifier may contain only letters, numbers, underscores, and hyphens.');
+  }
+  const root = path.resolve(artifactDirectory);
+  const runDirectory = path.resolve(root, runId);
+  if (path.dirname(runDirectory) !== root) {
+    throw new TypeError('Review run identifier must resolve inside the artifact directory.');
+  }
+  return runDirectory;
 }
 
 function defaultCodexExecutable(): string {
