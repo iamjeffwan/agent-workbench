@@ -37,6 +37,19 @@ test('adds bounded changed, test, rule, dependency, and diff evidence from a wor
   assert.equal(validateReviewEvidencePackage(result).valid, true);
 });
 
+test('keeps project-context reviewability when no change evidence is available', async () => {
+  const root = await repositoryFixture();
+
+  const result = await enrichReviewEvidencePackageFromProject({
+    evidencePackage: evidencePackage(),
+    repositoryRoot: root,
+  });
+
+  assert.equal(result.projectContext.files.length, 2);
+  assert.equal(result.projectContext.diff, null);
+  assert.equal(result.reviewability, 'needs_project_context');
+});
+
 test('reads an explicit revision without mixing in later working tree content', async () => {
   const root = await repositoryFixture();
   const revision = git(root, ['rev-parse', 'HEAD']).trim();

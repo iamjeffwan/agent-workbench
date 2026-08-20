@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { ReviewEvidencePackage } from './evidence.js';
 import type {
@@ -133,7 +133,7 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
           outputSchema: structuredClone(REVIEW_MODEL_OUTPUT_SCHEMA),
         });
         const output = assertReviewModelOutput(response.output);
-        assertEvidenceTargets(output, input.evidencePackage);
+        const evidenceTargets = assertEvidenceTargets(output, input.evidencePackage);
         const completedAt = now();
         const result = materializeResult(
           output,
@@ -144,6 +144,7 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
           completedAt,
           response,
           createId,
+          evidenceTargets,
         );
         options.store.recordRun(result);
         return structuredClone(result);
@@ -231,20 +232,26 @@ function materializeResult(
   completedAt: Date,
   response: ReviewModelResponse,
   createId: (kind: 'run' | 'judgement' | 'evidence') => string,
+  evidenceTargets: EvidenceTargetIndex,
 ): ReviewRunResult {
   const evidence: Evidence[] = [];
   const judgements: ModelJudgement[] = output.judgements.map(item => {
     const judgementId = createId('judgement');
-    evidence.push(...item.evidence.map(source => ({
-      evidenceId: createId('evidence'),
-      judgementId,
-      evidenceType: source.evidenceType,
-      targetType: source.targetType,
-      targetId: source.targetId,
-      description: source.description,
-      ...(source.cachedExcerpt ? { cachedExcerpt: source.cachedExcerpt } : {}),
-      ...(source.contentHash ? { contentHash: source.contentHash } : {}),
-    })));
+    evidence.push(...item.evidence.map(source => {
+      const target = requiredEvidenceTarget(evidenceTargets, source);
+      return {
+        evidenceId: createId('evidence'),
+        judgementId,
+        evidenceType: source.evidenceType,
+        targetType: source.targetType,
+        targetId: source.targetId,
+        description: source.description,
+        cachedExcerpt: source.cachedExcerpt && target.content.includes(source.cachedExcerpt)
+          ? source.cachedExcerpt
+          : target.content.slice(0, 1_000),
+        contentHash: target.contentHash,
+      };
+    }));
     return {
       judgementId,
       runId,
@@ -285,33 +292,54 @@ function assertMatchingInput(input: ExecuteReviewInput): void {
   }
 }
 
-function assertEvidenceTargets(output: ReviewModelOutput, evidencePackage: ReviewEvidencePackage): void {
-  const targets = new Map<EvidenceTargetType, Set<string>>(TARGET_TYPES.map(type => [type, new Set()]));
+type EvidenceTarget = {
+  content: string;
+  contentHash: string;
+};
+
+type EvidenceTargetIndex = Map<EvidenceTargetType, Map<string, EvidenceTarget>>;
+
+function assertEvidenceTargets(
+  output: ReviewModelOutput,
+  evidencePackage: ReviewEvidencePackage,
+): EvidenceTargetIndex {
+  const targets: EvidenceTargetIndex = new Map(TARGET_TYPES.map(type => [type, new Map()]));
   for (const turn of evidencePackage.turns) {
     for (const event of turn.events) {
-      targets.get('event')?.add(event.eventId);
-      targets.get('raw_ref')?.add(`${event.rawRef.sourceFile}:${event.rawRef.line}`);
+      const content = event.content ?? event;
+      addEvidenceTarget(targets, 'event', event.eventId, content);
+      addEvidenceTarget(targets, 'raw_ref', `${event.rawRef.sourceFile}:${event.rawRef.line}`, content);
     }
     const context = turn.projectContext;
     if (!context) continue;
-    targets.get('turn_diff')?.add(context.turnDiff.diffId);
-    targets.get('project_profile')?.add(context.projectProfile.profileId);
-    targets.get('environment_snapshot')?.add(context.environmentSnapshot.snapshotId);
-    if (context.environmentDelta) targets.get('environment_delta')?.add(context.environmentDelta.deltaId);
+    addEvidenceTarget(targets, 'turn_diff', context.turnDiff.diffId, context.turnDiff.unifiedDiff, context.turnDiff.contentHash);
+    addEvidenceTarget(targets, 'project_profile', context.projectProfile.profileId, context.projectProfile);
+    addEvidenceTarget(targets, 'environment_snapshot', context.environmentSnapshot.snapshotId, context.environmentSnapshot);
+    if (context.environmentDelta) addEvidenceTarget(targets, 'environment_delta', context.environmentDelta.deltaId, context.environmentDelta);
     for (const file of context.turnDiff.filesChanged) {
-      targets.get('project_file')?.add(file.path);
-      if (file.previousPath) targets.get('project_file')?.add(file.previousPath);
+      addEvidenceTarget(targets, 'project_file', file.path, file);
+      if (file.previousPath) addEvidenceTarget(targets, 'project_file', file.previousPath, file);
     }
     for (const file of [
       ...context.projectProfile.sourceFiles,
       ...context.projectProfile.ruleFiles,
       ...context.projectProfile.skillFiles,
       ...context.projectProfile.mcpFiles,
-    ]) targets.get('project_file')?.add(file);
+    ]) addEvidenceTarget(targets, 'project_file', file, { path: file, source: 'project_profile' });
   }
   const projectContext = evidencePackage.projectContext;
-  if (projectContext?.diff) targets.get('project_diff')?.add(projectContext.diff.targetId);
-  for (const file of projectContext?.files ?? []) targets.get('project_file')?.add(file.path);
+  if (projectContext?.diff) {
+    addEvidenceTarget(
+      targets,
+      'project_diff',
+      projectContext.diff.targetId,
+      projectContext.diff.content,
+      projectContext.diff.contentHash,
+    );
+  }
+  for (const file of projectContext?.files ?? []) {
+    addEvidenceTarget(targets, 'project_file', file.path, file.content, file.contentHash);
+  }
   for (const judgement of output.judgements) {
     for (const evidence of judgement.evidence) {
       if (!targets.get(evidence.targetType)?.has(evidence.targetId)) {
@@ -319,6 +347,31 @@ function assertEvidenceTargets(output: ReviewModelOutput, evidencePackage: Revie
       }
     }
   }
+  return targets;
+}
+
+function requiredEvidenceTarget(index: EvidenceTargetIndex, source: ReviewModelEvidence): EvidenceTarget {
+  const target = index.get(source.targetType)?.get(source.targetId);
+  if (!target) invalidOutput(`evidence target does not exist in the package: ${source.targetType}:${source.targetId}`);
+  return target;
+}
+
+function addEvidenceTarget(
+  index: EvidenceTargetIndex,
+  targetType: EvidenceTargetType,
+  targetId: string,
+  value: unknown,
+  contentHash?: string,
+): void {
+  const content = typeof value === 'string' ? value : JSON.stringify(value);
+  index.get(targetType)?.set(targetId, {
+    content,
+    contentHash: contentHash || hash(content),
+  });
+}
+
+function hash(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function assertJudgement(value: unknown, index: number): void {

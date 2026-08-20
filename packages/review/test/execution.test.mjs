@@ -58,6 +58,22 @@ test('records model failures and rejects fabricated evidence targets', async () 
   assert.equal(store.getCase(reviewCase.caseId).judgements.length, 0);
 });
 
+test('binds stored evidence content to the cited target instead of model-provided metadata', async () => {
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  store.createCase(reviewCase);
+  const output = modelOutput();
+  output.judgements[0].evidence[0].cachedExcerpt = 'fabricated excerpt';
+  output.judgements[0].evidence[0].contentHash = 'fabricated-hash';
+  const adapter = createInMemoryReviewModelAdapter({ response: { output } });
+
+  const result = await deterministicExecutor(store, adapter).execute(executionInput(reviewCase));
+
+  assert.equal(result.run.status, 'completed');
+  assert.equal(result.evidence[0].cachedExcerpt, 'Review this change.');
+  assert.notEqual(result.evidence[0].contentHash, 'fabricated-hash');
+});
+
 test('does not call a model when canonical evidence is insufficient', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
@@ -104,6 +120,23 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
   assert.ok(commands[0].args.includes('service_tier="fast"'));
   assert.ok(commands[0].args.includes('--ephemeral'));
   assert.ok(commands[0].input.includes('Evidence package'));
+});
+
+test('rejects path-like run identifiers before creating review artifacts', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'review-codex-run-id-'));
+  const commands = [];
+  const adapter = createCodexCliReviewModelAdapter({
+    artifactDirectory: root,
+    workingDirectory: process.cwd(),
+    runCommand: async command => {
+      commands.push(command);
+      const outputPath = command.args[command.args.indexOf('--output-last-message') + 1];
+      await writeFile(outputPath, JSON.stringify(modelOutput()), 'utf8');
+    },
+  });
+
+  await assert.rejects(() => adapter.review(codexRequest('../escaped-run')), /run identifier/i);
+  assert.equal(commands.length, 0);
 });
 
 test('configures a custom Codex provider using only an API key environment variable name', async () => {

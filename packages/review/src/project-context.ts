@@ -109,7 +109,8 @@ export async function enrichReviewEvidencePackageFromProject(
 
   const evidencePackage = structuredClone(input.evidencePackage);
   evidencePackage.projectContext = projectContext;
-  if (evidencePackage.reviewability === 'needs_project_context' && (diff || files.length > 0)) {
+  const hasChangeEvidence = Boolean(diff) || files.some(file => file.roles.includes('changed'));
+  if (evidencePackage.reviewability === 'needs_project_context' && hasChangeEvidence) {
     evidencePackage.reviewability = 'sufficient';
   }
   return evidencePackage;
