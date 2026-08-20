@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@agent-workbench/observation-schema": "workspace:*",
-    "@agent-workbench/project-observation": "workspace:*"
+    "@agent-workbench/project-observation": "workspace:*",
+    "@agent-workbench/security": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

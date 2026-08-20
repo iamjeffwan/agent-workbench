@@ -153,6 +153,36 @@ test('rejects unsafe custom Codex provider configuration before execution', () =
   }), /variable name is invalid/);
 });
 
+test('accepts model evidence that cites collected project diff and file targets', async () => {
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  store.createCase(reviewCase);
+  const input = executionInput(reviewCase);
+  input.evidencePackage.projectContext = {
+    contextSchemaVersion: 'review-project-context-1',
+    scope: 'working_tree',
+    diff: {
+      targetId: 'working-tree-diff', content: 'diff content', contentHash: 'diff-hash', truncated: false,
+    },
+    files: [{
+      path: 'src/parser.ts', roles: ['changed'], content: 'source', contentHash: 'file-hash', truncated: false,
+    }],
+    omissions: [],
+    limits: { maxFiles: 1, maxFileChars: 100, maxTotalFileChars: 100, maxDiffChars: 100 },
+  };
+  const output = modelOutput();
+  output.judgements[0].evidence = [
+    { ...output.judgements[0].evidence[0], targetType: 'project_diff', targetId: 'working-tree-diff' },
+    { ...output.judgements[0].evidence[0], targetType: 'project_file', targetId: 'src/parser.ts' },
+  ];
+  const adapter = createInMemoryReviewModelAdapter({ response: { output } });
+
+  const result = await deterministicExecutor(store, adapter).execute(input);
+
+  assert.equal(result.run.status, 'completed');
+  assert.deepEqual(result.evidence.map(item => item.targetType), ['project_diff', 'project_file']);
+});
+
 async function runWithDescriptor(descriptor) {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();

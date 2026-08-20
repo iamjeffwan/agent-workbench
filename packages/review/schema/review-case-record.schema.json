@@ -103,7 +103,7 @@
         "evidenceId": { "$ref": "#/$defs/nonEmpty" },
         "judgementId": { "$ref": "#/$defs/nonEmpty" },
         "evidenceType": { "$ref": "#/$defs/nonEmpty" },
-        "targetType": { "enum": ["event", "turn_diff", "project_profile", "environment_snapshot", "environment_delta", "raw_ref", "project_file"] },
+        "targetType": { "enum": ["event", "turn_diff", "project_profile", "environment_snapshot", "environment_delta", "project_diff", "raw_ref", "project_file"] },
         "targetId": { "$ref": "#/$defs/nonEmpty" },
         "description": { "$ref": "#/$defs/nonEmpty" },
         "cachedExcerpt": { "type": "string" },

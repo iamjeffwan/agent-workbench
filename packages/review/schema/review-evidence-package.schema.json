@@ -63,6 +63,70 @@
           }
         }
       }
+    },
+    "projectContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contextSchemaVersion", "scope", "diff", "files", "omissions", "limits"],
+      "properties": {
+        "contextSchemaVersion": { "const": "review-project-context-1" },
+        "scope": { "enum": ["working_tree", "revision"] },
+        "revision": { "type": "string", "minLength": 1 },
+        "diff": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["targetId", "content", "contentHash", "truncated"],
+          "properties": {
+            "targetId": { "type": "string", "minLength": 1 },
+            "content": { "type": "string" },
+            "contentHash": { "type": "string", "minLength": 1 },
+            "truncated": { "type": "boolean" }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "roles", "content", "contentHash", "truncated"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "roles": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "enum": ["changed", "test", "rule", "dependency", "source"] }
+              },
+              "content": { "type": "string" },
+              "contentHash": { "type": "string", "minLength": 1 },
+              "truncated": { "type": "boolean" }
+            }
+          }
+        },
+        "omissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "description"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "reason": { "enum": ["sensitive_file", "binary_file", "unavailable", "file_limit", "total_limit"] },
+              "description": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxFiles", "maxFileChars", "maxTotalFileChars", "maxDiffChars"],
+          "properties": {
+            "maxFiles": { "type": "integer", "minimum": 1 },
+            "maxFileChars": { "type": "integer", "minimum": 1 },
+            "maxTotalFileChars": { "type": "integer", "minimum": 1 },
+            "maxDiffChars": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
     }
   }
 }
