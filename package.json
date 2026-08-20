@@ -9,6 +9,7 @@
     "test": "node scripts/test-agent-workbench.mjs",
     "bench": "node bench/run.mjs",
     "bench:diff": "node bench/diff.mjs",
+    "review:test:codex": "pnpm --filter @agent-workbench/review build && node scripts/run-review-with-codex.mjs",
     "desktop": "pnpm --filter @agent-workbench/desktop start",
     "desktop:dev": "pnpm --filter @agent-workbench/desktop dev",
     "desktop:ui-preview": "pnpm --filter @agent-workbench/desktop ui-preview",
