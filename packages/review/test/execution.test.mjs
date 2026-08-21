@@ -216,6 +216,132 @@ test('accepts model evidence that cites collected project diff and file targets'
   assert.deepEqual(result.evidence.map(item => item.targetType), ['project_diff', 'project_file']);
 });
 
+test('does not treat turn metadata as project file content', async () => {
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  store.createCase(reviewCase);
+  const input = executionInput(reviewCase);
+  input.evidencePackage.turns[0].projectContext = {
+    turnDiff: {
+      diffId: 'diff-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      builderVersion: '0.1.0',
+      baseRef: 'base',
+      resultRef: 'result',
+      filesChanged: [{ path: 'src/parser.ts', status: 'modified' }],
+      unifiedDiff: 'diff content',
+      generatedAt: '2026-08-19T05:00:00.000Z',
+      contentHash: 'diff-hash',
+      isCurrent: true,
+    },
+    projectProfile: {
+      profileId: 'profile-1',
+      projectId: 'project-1',
+      version: 'profile-v1',
+      generatedAt: '2026-08-19T05:00:00.000Z',
+      technologyStack: [],
+      packageManagers: [],
+      keyDependencies: [],
+      commands: [],
+      ruleFiles: [],
+      skillFiles: [],
+      mcpFiles: [],
+      sourceFiles: ['src/parser.ts'],
+      fingerprints: { configuration: 'a', rules: 'b', skills: 'c', mcp: 'd' },
+    },
+    environmentSnapshot: {
+      snapshotId: 'snapshot-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      generatorVersion: '0.1.0',
+      capturedAt: '2026-08-19T05:00:00.000Z',
+      projectProfileVersion: 'profile-v1',
+      git: { treeHash: 'tree', dirty: true },
+      runtime: { os: 'win32', arch: 'x64', nodeVersion: '22.0.0' },
+    },
+    environmentDelta: null,
+  };
+  const output = modelOutput();
+  output.judgements[0].evidence[0] = {
+    ...output.judgements[0].evidence[0],
+    targetType: 'project_file',
+    targetId: 'src/parser.ts',
+  };
+  const adapter = createInMemoryReviewModelAdapter({ response: { output } });
+
+  const result = await deterministicExecutor(store, adapter).execute(input);
+
+  assert.equal(result.run.status, 'failed');
+  assert.match(result.run.failureReason, /target does not exist/);
+});
+
+test('only validates raw references when the exact source line is available', async () => {
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  store.createCase(reviewCase);
+  const output = modelOutput();
+  output.judgements[0].evidence[0] = {
+    ...output.judgements[0].evidence[0],
+    targetType: 'raw_ref',
+    targetId: 'session.jsonl:1',
+  };
+  const adapter = createInMemoryReviewModelAdapter({ response: { output } });
+
+  const unavailable = await deterministicExecutor(store, adapter).execute(executionInput(reviewCase));
+
+  assert.equal(unavailable.run.status, 'failed');
+  assert.match(unavailable.run.failureReason, /target does not exist/);
+  assert.match(adapter.requests[0].systemPrompt, /Do not cite raw_ref/);
+
+  const availableStore = createInMemoryReviewStore();
+  availableStore.createCase(reviewCase);
+  const rawAdapter = createInMemoryReviewModelAdapter({ response: { output } });
+  const available = await createReviewExecutor({
+    store: availableStore,
+    adapter: rawAdapter,
+    readRawReference: async () => '{"type":"message"}',
+    now: () => new Date('2026-08-19T05:00:00.000Z'),
+    createId: kind => `${kind}-raw`,
+  }).execute(executionInput(reviewCase));
+
+  assert.equal(available.run.status, 'completed');
+  assert.match(rawAdapter.requests[0].systemPrompt, /Exact raw record content is available/);
+  assert.equal(available.evidence[0].contentHash, '1cd04d809247aae0b9a332699a0f75bf75ab11ec13039bd3931a26f58fc9a805');
+  assert.equal(available.evidence[0].cachedExcerpt, '{"type":"message"}');
+});
+
+test('rejects conflicting evidence targets instead of silently overwriting', async () => {
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  store.createCase(reviewCase);
+  const input = executionInput(reviewCase);
+  input.evidencePackage.projectContext = {
+    contextSchemaVersion: 'review-project-context-1',
+    scope: 'working_tree',
+    files: [
+      { path: 'src/parser.ts', roles: ['changed'], content: 'version one', contentHash: 'hash-one', truncated: false },
+      { path: 'src/parser.ts', roles: ['test'], content: 'version two', contentHash: 'hash-two', truncated: false },
+    ],
+    omissions: [],
+    limits: { maxFiles: 2, maxFileChars: 100, maxTotalFileChars: 200, maxDiffChars: 100 },
+    diff: null,
+  };
+  const output = modelOutput();
+  output.judgements[0].evidence[0] = {
+    ...output.judgements[0].evidence[0],
+    targetType: 'project_file',
+    targetId: 'src/parser.ts',
+  };
+  const adapter = createInMemoryReviewModelAdapter({ response: { output } });
+
+  const result = await deterministicExecutor(store, adapter).execute(input);
+
+  assert.equal(result.run.status, 'failed');
+  assert.match(result.run.failureReason, /Conflicting evidence target/);
+});
+
 async function runWithDescriptor(descriptor) {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();

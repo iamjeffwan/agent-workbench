@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import { redactCredentialText } from '@agent-workbench/security';
+import type { RawRef } from '@agent-workbench/observation-schema';
 import type { ReviewEvidencePackage } from './evidence.js';
 import type {
   Evidence,
@@ -85,6 +87,7 @@ export type ReviewExecutor = {
 export type ReviewExecutorOptions = {
   store: ReviewStore;
   adapter: ReviewModelAdapter;
+  readRawReference?: (rawRef: RawRef) => Promise<string | undefined> | string | undefined;
   now?: () => Date;
   createId?: (kind: 'run' | 'judgement' | 'evidence') => string;
 };
@@ -125,15 +128,23 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
         if (input.evidencePackage.reviewability === 'insufficient') {
           throw new Error('The evidence package is insufficient for model review.');
         }
+        const baseSystemPrompt = input.systemPrompt ?? DEFAULT_REVIEW_SYSTEM_PROMPT;
+        const rawReferenceInstruction = options.readRawReference
+          ? 'Exact raw record content is available to the executor. Cite raw_ref only when the selected source line supports the judgement.'
+          : 'Exact raw record content is unavailable to the executor. Do not cite raw_ref; use needs_raw when a judgement requires the original record.';
         const response = await options.adapter.review({
           runId,
           reviewCase: structuredClone(input.reviewCase),
           evidencePackage: structuredClone(input.evidencePackage),
-          systemPrompt: input.systemPrompt ?? DEFAULT_REVIEW_SYSTEM_PROMPT,
+          systemPrompt: `${baseSystemPrompt}\n\n${rawReferenceInstruction}`,
           outputSchema: structuredClone(REVIEW_MODEL_OUTPUT_SCHEMA),
         });
         const output = assertReviewModelOutput(response.output);
-        const evidenceTargets = assertEvidenceTargets(output, input.evidencePackage);
+        const evidenceTargets = await assertEvidenceTargets(
+          output,
+          input.evidencePackage,
+          options.readRawReference,
+        );
         const completedAt = now();
         const result = materializeResult(
           output,
@@ -246,9 +257,7 @@ function materializeResult(
         targetType: source.targetType,
         targetId: source.targetId,
         description: source.description,
-        cachedExcerpt: source.cachedExcerpt && target.content.includes(source.cachedExcerpt)
-          ? source.cachedExcerpt
-          : target.content.slice(0, 1_000),
+        cachedExcerpt: target.excerpt,
         contentHash: target.contentHash,
       };
     }));
@@ -294,21 +303,35 @@ function assertMatchingInput(input: ExecuteReviewInput): void {
 
 type EvidenceTarget = {
   content: string;
+  excerpt: string;
   contentHash: string;
 };
 
 type EvidenceTargetIndex = Map<EvidenceTargetType, Map<string, EvidenceTarget>>;
 
-function assertEvidenceTargets(
+async function assertEvidenceTargets(
   output: ReviewModelOutput,
   evidencePackage: ReviewEvidencePackage,
-): EvidenceTargetIndex {
+  readRawReference?: ReviewExecutorOptions['readRawReference'],
+): Promise<EvidenceTargetIndex> {
   const targets: EvidenceTargetIndex = new Map(TARGET_TYPES.map(type => [type, new Map()]));
   for (const turn of evidencePackage.turns) {
     for (const event of turn.events) {
       const content = event.content ?? event;
       addEvidenceTarget(targets, 'event', event.eventId, content);
-      addEvidenceTarget(targets, 'raw_ref', `${event.rawRef.sourceFile}:${event.rawRef.line}`, content);
+      if (readRawReference) {
+        for (const rawReference of [event.rawRef, ...(event.relatedRawRefs ?? [])]) {
+          const rawContent = await readRawReference(rawReference);
+          if (rawContent !== undefined) {
+            addEvidenceTarget(
+              targets,
+              'raw_ref',
+              `${rawReference.sourceFile}:${rawReference.line}`,
+              rawContent,
+            );
+          }
+        }
+      }
     }
     const context = turn.projectContext;
     if (!context) continue;
@@ -316,16 +339,6 @@ function assertEvidenceTargets(
     addEvidenceTarget(targets, 'project_profile', context.projectProfile.profileId, context.projectProfile);
     addEvidenceTarget(targets, 'environment_snapshot', context.environmentSnapshot.snapshotId, context.environmentSnapshot);
     if (context.environmentDelta) addEvidenceTarget(targets, 'environment_delta', context.environmentDelta.deltaId, context.environmentDelta);
-    for (const file of context.turnDiff.filesChanged) {
-      addEvidenceTarget(targets, 'project_file', file.path, file);
-      if (file.previousPath) addEvidenceTarget(targets, 'project_file', file.previousPath, file);
-    }
-    for (const file of [
-      ...context.projectProfile.sourceFiles,
-      ...context.projectProfile.ruleFiles,
-      ...context.projectProfile.skillFiles,
-      ...context.projectProfile.mcpFiles,
-    ]) addEvidenceTarget(targets, 'project_file', file, { path: file, source: 'project_profile' });
   }
   const projectContext = evidencePackage.projectContext;
   if (projectContext?.diff) {
@@ -364,10 +377,20 @@ function addEvidenceTarget(
   contentHash?: string,
 ): void {
   const content = typeof value === 'string' ? value : JSON.stringify(value);
-  index.get(targetType)?.set(targetId, {
+  const target = {
     content,
+    excerpt: redactCredentialText(content, { context: 'auto' }).slice(0, 1_000),
     contentHash: contentHash || hash(content),
-  });
+  };
+  const bucket = index.get(targetType);
+  const existing = bucket?.get(targetId);
+  if (existing) {
+    if (existing.content !== target.content || existing.contentHash !== target.contentHash) {
+      throw new TypeError(`Conflicting evidence target: ${targetType}:${targetId}`);
+    }
+    return;
+  }
+  bucket?.set(targetId, target);
 }
 
 function hash(value: string): string {
