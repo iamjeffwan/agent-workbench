@@ -19,6 +19,8 @@ test('preload keeps the workbench operations available for later UI integration'
     'testDeepSeekConnection',
     'listModelCalls',
     'readModelCall',
+    'prepareReviewFromTask',
+    'prepareReviewFromTurns',
     'onState',
   ]) {
     assert.match(preload, new RegExp(`\\b${operation}\\s*:`));

@@ -16,6 +16,9 @@ importers:
       '@agent-workbench/project-observation':
         specifier: workspace:*
         version: link:../../packages/project-observation
+      '@agent-workbench/review':
+        specifier: workspace:*
+        version: link:../../packages/review
       '@agent-workbench/timeline':
         specifier: workspace:*
         version: link:../../packages/timeline

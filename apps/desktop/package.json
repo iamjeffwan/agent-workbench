@@ -17,6 +17,7 @@
   "dependencies": {
     "@agent-workbench/codex-adapter": "workspace:*",
     "@agent-workbench/project-observation": "workspace:*",
+    "@agent-workbench/review": "workspace:*",
     "@agent-workbench/timeline": "workspace:*",
     "@fontsource/dm-mono": "5.0.19",
     "@fontsource/dm-sans": "5.0.20",

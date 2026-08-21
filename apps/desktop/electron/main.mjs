@@ -21,6 +21,7 @@ import { createDeepSeekModelService } from './deepseek-model.mjs';
 import { createFlowDocumentGenerator } from './flow-document-generator.mjs';
 import { createProjectAssetsService } from './project-assets.mjs';
 import { createProjectObservationService } from './project-observation-service.mjs';
+import { createReviewObservationService } from './review-observation-service.mjs';
 import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
@@ -68,6 +69,12 @@ const projectObservation = createProjectObservationService({
   getUserDataPath: () => app.getPath('userData'),
   captureState: captureProjectState,
   deriveFacts: deriveProjectTurnFacts,
+});
+const reviewObservation = createReviewObservationService({
+  resolveSessionFiles: (projectRoot, sessionIds) =>
+    sessionHistory.resolveTrackedSessionFiles(projectRoot, sessionIds),
+  readTask: taskId => taskLibrary.readTask(taskId),
+  readProjectObservation: projectRoot => projectObservation.read(projectRoot),
 });
 
 if (process.platform === 'win32') {
@@ -577,6 +584,10 @@ app.whenReady().then(() => {
   ipcMain.handle('tasks:create', (_event, input) => taskLibrary.createTask(input));
   ipcMain.handle('tasks:discuss', (_event, taskId, message) => taskLibrary.discuss(taskId, message));
   ipcMain.handle('tasks:saveScript', (_event, taskId, input) => taskLibrary.saveScript(taskId, input));
+  ipcMain.handle('review:prepareFromTask', (_event, taskId, options) =>
+    reviewObservation.prepareFromTask(taskId, options));
+  ipcMain.handle('review:prepareFromTurns', (_event, input) =>
+    reviewObservation.prepareFromTurns(input));
   ipcMain.handle('sync:listTasks', (_event, projectRoot) => projectSync.listSyncTasks(projectRoot ?? state.projectRoot));
   ipcMain.handle('sync:readTask', (_event, projectRoot, taskId) => projectSync.readSyncTask(projectRoot ?? state.projectRoot, taskId));
   ipcMain.handle('sync:addTask', (_event, taskId) => projectSync.addTaskToSync(taskId));
