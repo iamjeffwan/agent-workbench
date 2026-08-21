@@ -15,7 +15,7 @@ import {
 test('executes a review through a replaceable adapter and records evidence-backed results', async () => {
   const store = createInMemoryReviewStore();
   const reviewCase = selectedCase();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const adapter = createInMemoryReviewModelAdapter({
     descriptor: { provider: 'test-provider', model: 'test-model', transport: 'test' },
     response: { output: modelOutput(), usage: { totalTokens: 42 }, actualCost: 0.01 },
@@ -30,7 +30,7 @@ test('executes a review through a replaceable adapter and records evidence-backe
   assert.equal(result.judgements[0].runId, result.run.runId);
   assert.equal(result.evidence[0].judgementId, result.judgements[0].judgementId);
   assert.equal(adapter.requests.length, 1);
-  assert.equal(store.getCase(reviewCase.caseId).runs.length, 1);
+  assert.equal((await store.getCase(reviewCase.caseId)).runs.length, 1);
 });
 
 test('switches providers without changing the executor contract', async () => {
@@ -46,7 +46,7 @@ test('switches providers without changing the executor contract', async () => {
 test('records model failures and rejects fabricated evidence targets', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const output = modelOutput();
   output.judgements[0].evidence[0].targetId = 'event-not-in-package';
   const adapter = createInMemoryReviewModelAdapter({ response: { output } });
@@ -55,13 +55,13 @@ test('records model failures and rejects fabricated evidence targets', async () 
 
   assert.equal(result.run.status, 'failed');
   assert.match(result.run.failureReason, /target does not exist/);
-  assert.equal(store.getCase(reviewCase.caseId).judgements.length, 0);
+  assert.equal((await store.getCase(reviewCase.caseId)).judgements.length, 0);
 });
 
 test('binds stored evidence content to the cited target instead of model-provided metadata', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const output = modelOutput();
   output.judgements[0].evidence[0].cachedExcerpt = 'fabricated excerpt';
   output.judgements[0].evidence[0].contentHash = 'fabricated-hash';
@@ -77,7 +77,7 @@ test('binds stored evidence content to the cited target instead of model-provide
 test('does not call a model when canonical evidence is insufficient', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const adapter = createInMemoryReviewModelAdapter({ response: { output: modelOutput() } });
   const input = executionInput(reviewCase);
   input.evidencePackage.reviewability = 'insufficient';
@@ -120,6 +120,35 @@ test('builds an isolated read-only Codex CLI invocation and preserves run artifa
   assert.ok(commands[0].args.includes('service_tier="fast"'));
   assert.ok(commands[0].args.includes('--ephemeral'));
   assert.ok(commands[0].input.includes('Evidence package'));
+  assert.deepEqual(
+    response.artifacts.map(item => item.kind),
+    ['request', 'output_schema', 'model_output'],
+  );
+  assert.ok(response.artifacts.every(item => path.isAbsolute(item.path) && item.contentHash.length === 64));
+});
+
+test('records available model artifacts when the Codex CLI invocation fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'review-codex-failure-'));
+  const reviewCase = selectedCase();
+  const store = createInMemoryReviewStore();
+  await store.createCase(reviewCase);
+  const adapter = createCodexCliReviewModelAdapter({
+    artifactDirectory: root,
+    workingDirectory: process.cwd(),
+    runCommand: async command => {
+      await writeFile(command.stderrPath, 'model unavailable', 'utf8');
+      throw new Error('Codex CLI exited with code 1.');
+    },
+  });
+
+  const result = await deterministicExecutor(store, adapter).execute(executionInput(reviewCase));
+
+  assert.equal(result.run.status, 'failed');
+  assert.deepEqual(
+    result.run.artifacts.map(item => item.kind),
+    ['request', 'output_schema', 'stderr'],
+  );
+  assert.deepEqual((await store.getCase(reviewCase.caseId)).runs[0].artifacts, result.run.artifacts);
 });
 
 test('rejects path-like run identifiers before creating review artifacts', async () => {
@@ -189,7 +218,7 @@ test('rejects unsafe custom Codex provider configuration before execution', () =
 test('accepts model evidence that cites collected project diff and file targets', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const input = executionInput(reviewCase);
   input.evidencePackage.projectContext = {
     contextSchemaVersion: 'review-project-context-1',
@@ -219,7 +248,7 @@ test('accepts model evidence that cites collected project diff and file targets'
 test('does not treat turn metadata as project file content', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const input = executionInput(reviewCase);
   input.evidencePackage.turns[0].projectContext = {
     turnDiff: {
@@ -280,7 +309,7 @@ test('does not treat turn metadata as project file content', async () => {
 test('only validates raw references when the exact source line is available', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const output = modelOutput();
   output.judgements[0].evidence[0] = {
     ...output.judgements[0].evidence[0],
@@ -296,7 +325,7 @@ test('only validates raw references when the exact source line is available', as
   assert.match(adapter.requests[0].systemPrompt, /Do not cite raw_ref/);
 
   const availableStore = createInMemoryReviewStore();
-  availableStore.createCase(reviewCase);
+  await availableStore.createCase(reviewCase);
   const rawAdapter = createInMemoryReviewModelAdapter({ response: { output } });
   const available = await createReviewExecutor({
     store: availableStore,
@@ -315,7 +344,7 @@ test('only validates raw references when the exact source line is available', as
 test('rejects conflicting evidence targets instead of silently overwriting', async () => {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const input = executionInput(reviewCase);
   input.evidencePackage.projectContext = {
     contextSchemaVersion: 'review-project-context-1',
@@ -345,7 +374,7 @@ test('rejects conflicting evidence targets instead of silently overwriting', asy
 async function runWithDescriptor(descriptor) {
   const reviewCase = selectedCase();
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase);
+  await store.createCase(reviewCase);
   const adapter = createInMemoryReviewModelAdapter({ descriptor, response: { output: modelOutput() } });
   return deterministicExecutor(store, adapter).execute(executionInput(reviewCase));
 }

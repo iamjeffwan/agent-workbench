@@ -13,11 +13,12 @@ import type {
   ReviewRunResult,
   ReviewSeverity,
   ReviewStore,
+  ReviewRunArtifact,
   Reviewability,
 } from './types.js';
 import { assertReviewEvidencePackage } from './validate.js';
 
-export const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are an evidence-bound reviewer. Review only the supplied evidence package. Do not infer facts that are not supported by a cited target. Every judgement must include at least one evidence item. Use reviewability to mark conclusions that need raw logs or project context. Return only the requested structured output.`;
+export const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are an evidence-bound reviewer. Review only the supplied evidence package. Do not infer facts that are not supported by a cited target. Every judgement must include at least one evidence item. Use reviewability to mark conclusions that need raw logs or project context. Do not cite gaps, omissions, unavailable markers, or limitation descriptions as evidence targets; cite only an existing target from the package. Return only the requested structured output.`;
 
 export type ReviewModelDescriptor = {
   provider: string;
@@ -65,7 +66,18 @@ export type ReviewModelResponse = {
   output: unknown;
   usage?: ModelUsage;
   actualCost?: number;
+  artifacts?: ReviewRunArtifact[];
 };
+
+export class ReviewModelAdapterError extends Error {
+  readonly artifacts: ReviewRunArtifact[];
+
+  constructor(message: string, artifacts: ReviewRunArtifact[]) {
+    super(message);
+    this.name = 'ReviewModelAdapterError';
+    this.artifacts = structuredClone(artifacts);
+  }
+}
 
 export type ReviewModelAdapter = {
   descriptor: ReviewModelDescriptor;
@@ -112,7 +124,7 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
         reviewPolicyVersion: input.reviewPolicyVersion,
         evidenceSchemaVersion: input.evidencePackage.evidenceSchemaVersion,
       };
-      options.store.recordRun({
+      await options.store.recordRun({
         run: {
           runId,
           caseId: input.reviewCase.caseId,
@@ -157,7 +169,7 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
           createId,
           evidenceTargets,
         );
-        options.store.recordRun(result);
+        await options.store.recordRun(result);
         return structuredClone(result);
       } catch (error) {
         const completedAt = now();
@@ -171,11 +183,14 @@ export function createReviewExecutor(options: ReviewExecutorOptions): ReviewExec
             status: 'failed',
             latencyMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
             failureReason: errorMessage(error),
+            ...(error instanceof ReviewModelAdapterError && error.artifacts.length > 0
+              ? { artifacts: structuredClone(error.artifacts) }
+              : {}),
           },
           judgements: [],
           evidence: [],
         };
-        options.store.recordRun(result);
+        await options.store.recordRun(result);
         return structuredClone(result);
       }
     },
@@ -287,6 +302,7 @@ function materializeResult(
       status: 'completed',
       ...(response.usage ? { usage: response.usage } : {}),
       ...(response.actualCost !== undefined ? { actualCost: response.actualCost } : {}),
+      ...(response.artifacts ? { artifacts: structuredClone(response.artifacts) } : {}),
       latencyMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
     },
     judgements,

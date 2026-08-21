@@ -27,7 +27,7 @@ if (options.projectRoot) {
 }
 const customProvider = customProviderFrom(options);
 const store = createInMemoryReviewStore();
-store.createCase(reviewCase);
+await store.createCase(reviewCase);
 const adapter = createCodexCliReviewModelAdapter({
   artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
   workingDirectory: process.cwd(),

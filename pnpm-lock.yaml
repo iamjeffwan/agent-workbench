@@ -132,6 +132,15 @@ importers:
         specifier: ^5.7.0
         version: 5.7.2
 
+  packages/local-database:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.7.2
+
   packages/observation-schema:
     devDependencies:
       '@types/node':
@@ -156,6 +165,9 @@ importers:
 
   packages/review:
     dependencies:
+      '@agent-workbench/local-database':
+        specifier: workspace:*
+        version: link:../local-database
       '@agent-workbench/observation-schema':
         specifier: workspace:*
         version: link:../observation-schema

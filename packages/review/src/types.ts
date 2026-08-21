@@ -51,6 +51,13 @@ export type ModelUsage = {
   totalTokens?: number;
 };
 
+export type ReviewRunArtifact = {
+  kind: 'request' | 'output_schema' | 'model_output' | 'stdout' | 'stderr';
+  path: string;
+  contentHash: string;
+  byteLength: number;
+};
+
 export type ReviewRun = {
   runId: string;
   caseId: string;
@@ -62,6 +69,7 @@ export type ReviewRun = {
   actualCost?: number;
   latencyMs?: number;
   failureReason?: string;
+  artifacts?: ReviewRunArtifact[];
 };
 
 export type ModelJudgement = {
@@ -129,8 +137,9 @@ export type ReviewRunResult = {
 };
 
 export type ReviewStore = {
-  createCase(reviewCase: ReviewCase): ReviewCaseRecord;
-  recordRun(result: ReviewRunResult): ReviewCaseRecord;
-  appendAnnotation(annotation: HumanAnnotation): ReviewCaseRecord;
-  getCase(caseId: string): ReviewCaseRecord | undefined;
+  createCase(reviewCase: ReviewCase): Promise<ReviewCaseRecord>;
+  recordRun(result: ReviewRunResult): Promise<ReviewCaseRecord>;
+  appendAnnotation(annotation: HumanAnnotation): Promise<ReviewCaseRecord>;
+  getCase(caseId: string): Promise<ReviewCaseRecord | undefined>;
+  listCases(options?: { projectId?: string; limit?: number }): Promise<ReviewCase[]>;
 };

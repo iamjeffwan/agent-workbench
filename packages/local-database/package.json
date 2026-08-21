@@ -1,0 +1,27 @@
+{
+  "name": "@agent-workbench/local-database",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local SQLite database infrastructure for Agent Workbench.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.16.0"
+  }
+}
