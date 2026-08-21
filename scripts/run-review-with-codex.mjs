@@ -10,7 +10,7 @@ import {
 
 const options = parseArgs(process.argv.slice(2).filter(argument => argument !== '--'));
 if (!options.case || !options.evidence) {
-  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--project-root <directory>] [--provider <id> --base-url <url> --api-key-env <name>]');
+  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--project-root <directory>] [--raw-session-file <session.jsonl>] [--provider <id> --base-url <url> --api-key-env <name>]');
 }
 if (options.serviceTier && !['fast', 'flex'].includes(options.serviceTier)) {
   throw new Error('The service tier must be fast or flex.');
@@ -36,7 +36,13 @@ const adapter = createCodexCliReviewModelAdapter({
   ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
   ...(customProvider ? { customProvider } : {}),
 });
-const executor = createReviewExecutor({ store, adapter });
+const executor = createReviewExecutor({
+  store,
+  adapter,
+  ...(options.rawSessionFile
+    ? { readRawReference: createRawReferenceReader(options.rawSessionFile) }
+    : {}),
+});
 const result = await executor.execute({
   reviewCase,
   evidencePackage,
@@ -61,6 +67,18 @@ function customProviderFrom(values) {
     ...(values.supportsWebSockets !== undefined
       ? { supportsWebSockets: parseBoolean(values.supportsWebSockets, '--supports-web-sockets') }
       : {}),
+  };
+}
+
+function createRawReferenceReader(inputPath) {
+  const sessionFile = path.resolve(inputPath);
+  let linesPromise;
+  return async rawRef => {
+    const sourceFile = path.resolve(rawRef.sourceFile);
+    if (sourceFile !== sessionFile || !Number.isInteger(rawRef.line) || rawRef.line < 1) return undefined;
+    linesPromise ??= fs.readFile(sessionFile, 'utf8').then(content => content.split(/\r?\n/));
+    const lines = await linesPromise;
+    return lines[rawRef.line - 1];
   };
 }
 
