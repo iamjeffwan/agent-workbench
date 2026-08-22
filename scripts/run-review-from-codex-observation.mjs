@@ -2,6 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  openLocalDatabase,
+  resolveDefaultDatabasePath,
+} from '../packages/local-database/dist/index.js';
+import {
   findCodexSessions,
   readCodexSessionMetadata,
 } from '../packages/codex-adapter/dist/index.js';
@@ -11,8 +15,8 @@ import {
 } from '../packages/project-observation/dist/index.js';
 import {
   createCodexCliReviewModelAdapter,
-  createInMemoryReviewStore,
   createReviewExecutor,
+  createSqliteReviewStore,
 } from '../packages/review/dist/index.js';
 import { createProjectObservationService } from '../apps/desktop/electron/project-observation-service.mjs';
 import { createReviewObservationService } from '../apps/desktop/electron/review-observation-service.mjs';
@@ -45,42 +49,76 @@ if (options.prepareOnly === 'true') {
 }
 
 const customProvider = customProviderFrom(options);
-const store = createInMemoryReviewStore();
-store.createCase(prepared.data.reviewCase);
-const adapter = createCodexCliReviewModelAdapter({
-  artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
-  workingDirectory: selection.projectRoot,
-  model: options.model ?? 'gpt-5.6-sol',
-  ...(options.executable ? { executable: path.resolve(options.executable) } : {}),
-  ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
-  ...(customProvider ? { customProvider } : {}),
-});
-const executor = createReviewExecutor({ store, adapter });
-const result = await executor.execute({
-  reviewCase: prepared.data.reviewCase,
-  evidencePackage: prepared.data.evidencePackage,
-  promptVersion: options.promptVersion ?? 'review-prompt-1',
-  reviewPolicyVersion: options.policyVersion ?? 'review-policy-1',
-});
+const databasePath = resolveDatabasePath(options);
+const database = openLocalDatabase({ filePath: databasePath });
+try {
+  const store = createSqliteReviewStore({ database });
+  await store.createCase(prepared.data.reviewCase);
+  const adapter = createCodexCliReviewModelAdapter({
+    artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
+    workingDirectory: selection.projectRoot,
+    model: options.model ?? 'gpt-5.6-sol',
+    ...(options.executable ? { executable: path.resolve(options.executable) } : {}),
+    ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
+    ...(customProvider ? { customProvider } : {}),
+  });
+  const executor = createReviewExecutor({
+    store,
+    adapter,
+    readRawReference: createRawReferenceReader(prepared.data.selection.sessionFile),
+  });
+  const result = await executor.execute({
+    reviewCase: prepared.data.reviewCase,
+    evidencePackage: prepared.data.evidencePackage,
+    promptVersion: options.promptVersion ?? 'review-prompt-1',
+    reviewPolicyVersion: options.policyVersion ?? 'review-policy-1',
+  });
 
-process.stdout.write(`${JSON.stringify({
-  preparation: {
-    projectId: prepared.data.reviewCase.projectId,
-    sourceType: prepared.data.reviewCase.sourceType,
-    turnCount: prepared.data.reviewCase.turns.length,
-    reviewability: prepared.data.evidencePackage.reviewability,
-    evidenceGapCount: prepared.data.evidencePackage.gaps.length,
-    projectContext: prepared.data.evidencePackage.projectContext
-      ? {
-          scope: prepared.data.evidencePackage.projectContext.scope,
-          fileCount: prepared.data.evidencePackage.projectContext.files.length,
-          hasDiff: Boolean(prepared.data.evidencePackage.projectContext.diff),
-        }
-      : null,
-  },
-  result,
-}, null, 2)}\n`);
-if (result.run.status !== 'completed') process.exitCode = 1;
+  process.stdout.write(`${JSON.stringify({
+    preparation: {
+      projectId: prepared.data.reviewCase.projectId,
+      sourceType: prepared.data.reviewCase.sourceType,
+      turnCount: prepared.data.reviewCase.turns.length,
+      reviewability: prepared.data.evidencePackage.reviewability,
+      evidenceGapCount: prepared.data.evidencePackage.gaps.length,
+      projectContext: prepared.data.evidencePackage.projectContext
+        ? {
+            scope: prepared.data.evidencePackage.projectContext.scope,
+            fileCount: prepared.data.evidencePackage.projectContext.files.length,
+            hasDiff: Boolean(prepared.data.evidencePackage.projectContext.diff),
+          }
+        : null,
+    },
+    databasePath,
+    result,
+  }, null, 2)}\n`);
+  if (result.run.status !== 'completed') process.exitCode = 1;
+} finally {
+  database.close();
+}
+
+function resolveDatabasePath(values) {
+  if (values.database && values.dataDir) {
+    throw new Error('Use either --database or --data-dir, not both.');
+  }
+  if (values.database) return path.resolve(values.database);
+  if (values.dataDir) return path.join(path.resolve(values.dataDir), 'agent-workbench.db');
+  return resolveDefaultDatabasePath();
+}
+
+function createRawReferenceReader(inputPath) {
+  const sessionFile = path.resolve(inputPath);
+  let linesPromise;
+  return async rawRef => {
+    const sourceFile = path.resolve(rawRef.sourceFile);
+    if (!samePath(sourceFile, sessionFile) || !Number.isInteger(rawRef.line) || rawRef.line < 1) {
+      return undefined;
+    }
+    linesPromise ??= fs.readFile(sessionFile, 'utf8').then(content => content.split(/\r?\n/));
+    const lines = await linesPromise;
+    return lines[rawRef.line - 1];
+  };
+}
 
 async function resolveSelection(values) {
   if (values.taskFile) {

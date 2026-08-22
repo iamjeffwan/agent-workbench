@@ -1,7 +1,9 @@
 export { createInMemoryReviewStore } from './store.js';
+export { createSqliteReviewStore, REVIEW_DATABASE_MIGRATIONS } from './sqlite-store.js';
 export {
   DEFAULT_REVIEW_SYSTEM_PROMPT,
   REVIEW_MODEL_OUTPUT_SCHEMA,
+  ReviewModelAdapterError,
   assertReviewModelOutput,
   createReviewExecutor,
 } from './execution.js';
@@ -71,6 +73,7 @@ export type {
   ReviewCaseRecord,
   ReviewCategory,
   ReviewRun,
+  ReviewRunArtifact,
   ReviewRunResult,
   ReviewRunStatus,
   ReviewSeverity,

@@ -11,7 +11,7 @@ export function createInMemoryReviewStore(): ReviewStore {
   const records = new Map<string, ReviewCaseRecord>();
 
   return {
-    createCase(reviewCase) {
+    async createCase(reviewCase) {
       if (records.has(reviewCase.caseId)) throw new Error(`Review case already exists: ${reviewCase.caseId}`);
       const record = emptyRecord(reviewCase);
       assertReviewCaseRecord(record);
@@ -19,7 +19,7 @@ export function createInMemoryReviewStore(): ReviewStore {
       return clone(record);
     },
 
-    recordRun(result) {
+    async recordRun(result) {
       const record = requiredRecord(records, result.run.caseId);
       const existing = record.runs.find(run => run.runId === result.run.runId);
       if (existing) assertRunTransition(existing, result.run);
@@ -37,7 +37,7 @@ export function createInMemoryReviewStore(): ReviewStore {
       return clone(next);
     },
 
-    appendAnnotation(annotation) {
+    async appendAnnotation(annotation) {
       const entry = findRecordForJudgement(records, annotation);
       if ([...records.values()].some(record => (
         record.annotations.some(item => item.annotationId === annotation.annotationId)
@@ -50,11 +50,29 @@ export function createInMemoryReviewStore(): ReviewStore {
       return clone(next);
     },
 
-    getCase(caseId) {
+    async getCase(caseId) {
       const record = records.get(caseId);
       return record ? clone(record) : undefined;
     },
+
+    async listCases(options = {}) {
+      const limit = normalizeLimit(options.limit);
+      return [...records.values()]
+        .map(record => record.reviewCase)
+        .filter(reviewCase => !options.projectId || reviewCase.projectId === options.projectId)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .slice(0, limit)
+        .map(clone);
+    },
   };
+}
+
+function normalizeLimit(value: number | undefined): number {
+  if (value === undefined) return 100;
+  if (!Number.isInteger(value) || value < 1 || value > 1_000) {
+    throw new TypeError('Review case list limit must be an integer between 1 and 1000.');
+  }
+  return value;
 }
 
 function assertUniqueResultIds(

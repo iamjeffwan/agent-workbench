@@ -6,21 +6,21 @@ import {
   validateReviewCaseRecord,
 } from '../dist/index.js';
 
-test('creates an empty review case with a valid published contract', () => {
+test('creates an empty review case with a valid published contract', async () => {
   const store = createInMemoryReviewStore();
-  const record = store.createCase(reviewCase());
+  const record = await store.createCase(reviewCase());
 
   assert.deepEqual(record.runs, []);
   assert.equal(validateReviewCaseRecord(record).valid, true);
   record.reviewCase.projectId = 'mutated-outside';
-  assert.equal(store.getCase('case-1').reviewCase.projectId, 'project-1');
+  assert.equal((await store.getCase('case-1')).reviewCase.projectId, 'project-1');
 });
 
-test('appends evidence-backed runs and preserves re-review history', () => {
+test('appends evidence-backed runs and preserves re-review history', async () => {
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase());
-  store.recordRun(completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1'));
-  const record = store.recordRun(completedResult('run-2', 'future-review-model', 'judgement-2', 'evidence-2'));
+  await store.createCase(reviewCase());
+  await store.recordRun(completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1'));
+  const record = await store.recordRun(completedResult('run-2', 'future-review-model', 'judgement-2', 'evidence-2'));
 
   assert.deepEqual(record.runs.map(run => run.runId), ['run-1', 'run-2']);
   assert.deepEqual(record.runs.map(run => run.invocation.model), ['gpt-5.6-sol', 'future-review-model']);
@@ -28,36 +28,36 @@ test('appends evidence-backed runs and preserves re-review history', () => {
   assert.equal(record.evidence.length, 2);
 });
 
-test('rejects judgements without evidence or a completed run', () => {
+test('rejects judgements without evidence or a completed run', async () => {
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase());
+  await store.createCase(reviewCase());
   const missingEvidence = completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1');
   missingEvidence.evidence = [];
-  assert.throws(() => store.recordRun(missingEvidence), /must have at least one evidence item/);
+  await assert.rejects(store.recordRun(missingEvidence), /must have at least one evidence item/);
 
   const running = completedResult('run-2', 'gpt-5.6-sol', 'judgement-2', 'evidence-2');
   running.run.status = 'running';
   delete running.run.completedAt;
-  assert.throws(() => store.recordRun(running), /must reference a completed run/);
+  await assert.rejects(store.recordRun(running), /must reference a completed run/);
 });
 
-test('keeps runs immutable and human annotations append-only', () => {
+test('keeps runs immutable and human annotations append-only', async () => {
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase());
+  await store.createCase(reviewCase());
   const result = completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1');
-  store.recordRun(result);
+  await store.recordRun(result);
 
-  assert.throws(() => store.recordRun(result), /Review run is already terminal/);
-  const first = store.appendAnnotation(annotation('annotation-1'));
-  const second = store.appendAnnotation(annotation('annotation-2'));
+  await assert.rejects(store.recordRun(result), /Review run is already terminal/);
+  const first = await store.appendAnnotation(annotation('annotation-1'));
+  const second = await store.appendAnnotation(annotation('annotation-2'));
   assert.deepEqual(second.annotations.map(item => item.annotationId), ['annotation-1', 'annotation-2']);
   assert.equal(first.annotations.length, 1);
-  assert.throws(() => store.appendAnnotation(annotation('annotation-2')), /Human annotation already exists/);
+  await assert.rejects(store.appendAnnotation(annotation('annotation-2')), /Human annotation already exists/);
 });
 
-test('allows an active run to advance once and keeps its identity stable', () => {
+test('allows an active run to advance once and keeps its identity stable', async () => {
   const store = createInMemoryReviewStore();
-  store.createCase(reviewCase());
+  await store.createCase(reviewCase());
   const completed = completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1');
   const running = {
     run: { ...completed.run, status: 'running' },
@@ -67,12 +67,12 @@ test('allows an active run to advance once and keeps its identity stable', () =>
   delete running.run.completedAt;
   delete running.run.usage;
   delete running.run.latencyMs;
-  store.recordRun(running);
-  const record = store.recordRun(completed);
+  await store.recordRun(running);
+  const record = await store.recordRun(completed);
 
   assert.equal(record.runs.length, 1);
   assert.equal(record.runs[0].status, 'completed');
-  assert.throws(() => store.recordRun(completed), /already terminal/);
+  await assert.rejects(store.recordRun(completed), /already terminal/);
 });
 
 test('reports structural and relationship errors with stable paths', () => {

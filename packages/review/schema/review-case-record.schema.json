@@ -72,7 +72,22 @@
         "usage": { "$ref": "#/$defs/usage" },
         "actualCost": { "type": "number", "minimum": 0 },
         "latencyMs": { "type": "number", "minimum": 0 },
-        "failureReason": { "$ref": "#/$defs/nonEmpty" }
+        "failureReason": { "$ref": "#/$defs/nonEmpty" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runArtifact" }
+        }
+      }
+    },
+    "runArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "contentHash", "byteLength"],
+      "properties": {
+        "kind": { "enum": ["request", "output_schema", "model_output", "stdout", "stderr"] },
+        "path": { "$ref": "#/$defs/nonEmpty" },
+        "contentHash": { "$ref": "#/$defs/nonEmpty" },
+        "byteLength": { "type": "integer", "minimum": 0 }
       }
     },
     "judgement": {

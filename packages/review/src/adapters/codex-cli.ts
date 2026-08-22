@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
@@ -8,6 +9,7 @@ import type {
   ReviewModelRequest,
   ReviewModelResponse,
 } from '../execution.js';
+import { ReviewModelAdapterError } from '../execution.js';
 
 export type CodexCliCommand = {
   executable: string;
@@ -66,31 +68,69 @@ export function createCodexCliReviewModelAdapter(
       await mkdir(runDirectory, { recursive: true });
       await writeFile(schemaPath, `${JSON.stringify(request.outputSchema, null, 2)}\n`, 'utf8');
       await writeFile(requestPath, `${JSON.stringify(request, null, 2)}\n`, 'utf8');
-      await runCommand({
-        executable,
-        args: [
-          'exec',
-          ...(customProvider ? customProviderArguments(customProvider) : []),
-          ...(options.serviceTier ? ['--config', `service_tier="${options.serviceTier}"`] : []),
-          '--model', model,
-          '--sandbox', 'read-only',
-          '--cd', runDirectory,
-          '--skip-git-repo-check',
-          '--output-schema', schemaPath,
-          '--output-last-message', outputPath,
-          '--color', 'never',
-          '--ephemeral',
-        ],
-        cwd: options.workingDirectory,
-        input: buildPrompt(request),
-        stdoutPath,
-        stderrPath,
-        ...(customProvider ? { requiredEnvironmentVariable: customProvider.apiKeyEnv } : {}),
-      });
+      try {
+        await runCommand({
+          executable,
+          args: [
+            'exec',
+            ...(customProvider ? customProviderArguments(customProvider) : []),
+            ...(options.serviceTier ? ['--config', `service_tier="${options.serviceTier}"`] : []),
+            '--model', model,
+            '--sandbox', 'read-only',
+            '--cd', runDirectory,
+            '--skip-git-repo-check',
+            '--output-schema', schemaPath,
+            '--output-last-message', outputPath,
+            '--color', 'never',
+            '--ephemeral',
+          ],
+          cwd: options.workingDirectory,
+          input: buildPrompt(request),
+          stdoutPath,
+          stderrPath,
+          ...(customProvider ? { requiredEnvironmentVariable: customProvider.apiKeyEnv } : {}),
+        });
+      } catch (error) {
+        const artifacts = await collectArtifacts([
+          ['request', requestPath],
+          ['output_schema', schemaPath],
+          ['model_output', outputPath],
+          ['stdout', stdoutPath],
+          ['stderr', stderrPath],
+        ]);
+        throw new ReviewModelAdapterError(
+          error instanceof Error ? error.message : 'Codex CLI review failed.',
+          artifacts,
+        );
+      }
       const output = JSON.parse(await readFile(outputPath, 'utf8')) as unknown;
-      return { output };
+      const artifacts = await collectArtifacts([
+        ['request', requestPath],
+        ['output_schema', schemaPath],
+        ['model_output', outputPath],
+        ['stdout', stdoutPath],
+        ['stderr', stderrPath],
+      ]);
+      return { output, artifacts };
     },
   };
+}
+
+async function collectArtifacts(
+  candidates: Array<[kind: 'request' | 'output_schema' | 'model_output' | 'stdout' | 'stderr', file: string]>,
+) {
+  const artifacts = [];
+  for (const [kind, file] of candidates) {
+    if (!existsSync(file)) continue;
+    const [content, metadata] = await Promise.all([readFile(file), stat(file)]);
+    artifacts.push({
+      kind,
+      path: path.resolve(file),
+      contentHash: createHash('sha256').update(content).digest('hex'),
+      byteLength: metadata.size,
+    });
+  }
+  return artifacts;
 }
 
 function buildPrompt(request: ReviewModelRequest): string {
