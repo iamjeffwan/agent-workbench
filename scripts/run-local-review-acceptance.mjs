@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { createRunOwnership } from './local-operation-safety.mjs';
+
 import { openLocalDatabase } from '../packages/local-database/dist/index.js';
 import { readCodexSessionMetadata } from '../packages/codex-adapter/dist/index.js';
 import {
@@ -21,6 +23,12 @@ const sessionFile = requiredPath(options.sessionFile, '--session-file');
 const sessionId = requiredText(options.sessionId, '--session-id');
 const turnId = requiredText(options.turnId, '--turn-id');
 const databasePath = requiredPath(options.database, '--database');
+const acceptanceStatePath = path.join(projectRoot, '.agent-workbench-local-acceptance');
+const ownership = createRunOwnership();
+if (!await pathExists(acceptanceStatePath)) {
+  await fs.mkdir(acceptanceStatePath, { recursive: true });
+  ownership.registerCreatedPath(acceptanceStatePath);
+}
 
 const metadata = readCodexSessionMetadata(sessionFile);
 if (metadata?.sessionId !== sessionId || !samePath(metadata.cwd, projectRoot)) {
@@ -28,7 +36,7 @@ if (metadata?.sessionId !== sessionId || !samePath(metadata.cwd, projectRoot)) {
 }
 
 const projectObservation = createProjectObservationService({
-  getUserDataPath: () => path.join(projectRoot, '.agent-workbench-local-acceptance'),
+  getUserDataPath: () => acceptanceStatePath,
   captureState: captureProjectState,
   deriveFacts: deriveProjectTurnFacts,
 });
@@ -106,6 +114,7 @@ try {
     run: result.run,
     judgementIds: result.judgements.map(item => item.judgementId),
     evidenceIds: result.evidence.map(item => item.evidenceId),
+    ownedPaths: ownership.records(),
   }, null, 2)}\n`);
   if (result.run.status !== 'completed') process.exitCode = 1;
 } finally {
@@ -146,4 +155,13 @@ function samePath(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return false;
   const normalize = value => path.resolve(value).toLowerCase();
   return normalize(left) === normalize(right);
+}
+
+async function pathExists(target) {
+  try {
+    await fs.stat(target);
+    return true;
+  } catch {
+    return false;
+  }
 }

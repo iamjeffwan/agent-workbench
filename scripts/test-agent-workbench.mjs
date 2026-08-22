@@ -46,6 +46,8 @@ for (const item of packages) {
   );
 }
 
+run(process.execPath, ['--test', 'scripts/*.test.mjs'], repoRoot);
+
 console.log('\n[agent-workbench] all tests passed');
 
 function run(command, args, cwd) {
