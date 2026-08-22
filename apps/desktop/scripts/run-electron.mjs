@@ -1,9 +1,13 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+import { stopProcessTree } from '../../../scripts/local-operation-safety.mjs';
+
+// Windows taskkill ['/T', '/F'] is delegated to the safety module after identity checks.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
@@ -53,6 +57,8 @@ const forwardedArguments = process.argv.slice(2).filter(
 
 let activeVite = null;
 let activeElectron = null;
+let activeViteExpectation = null;
+let activeElectronExpectation = null;
 let shuttingDown = false;
 
 process.once('SIGINT', () => shutdown(0));
@@ -86,6 +92,10 @@ async function runDevelopment() {
   );
 
   activeVite = vite;
+  activeViteExpectation = {
+    parentPid: process.pid,
+    commandLineIncludes: [viteCli],
+  };
 
   vite.once('exit', (code) => {
     if (activeVite === vite) activeVite = null;
@@ -120,12 +130,16 @@ function runElectron(environment) {
   );
 
   activeElectron = child;
+  activeElectronExpectation = {
+    parentPid: process.pid,
+    commandLineIncludes: [appRoot],
+  };
 
   child.on('exit', (code, signal) => {
     if (activeElectron === child) activeElectron = null;
     if (shuttingDown) return;
     shuttingDown = true;
-    stopProcessTree(activeVite);
+    reportStop(stopProcessTree(activeVite, { expected: activeViteExpectation }));
     process.exit(signal ? 1 : code ?? 1);
   });
   return child;
@@ -134,21 +148,15 @@ function runElectron(environment) {
 function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
-  stopProcessTree(activeElectron);
-  stopProcessTree(activeVite);
+  reportStop(stopProcessTree(activeElectron, { expected: activeElectronExpectation }));
+  reportStop(stopProcessTree(activeVite, { expected: activeViteExpectation }));
   process.exit(code);
 }
 
-function stopProcessTree(child) {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    return;
+function reportStop(result) {
+  if (result.status === 'skipped' && result.reason !== 'process-already-exited') {
+    console.error(`[desktop] skipped child termination: ${result.reason}`);
   }
-  child.kill('SIGTERM');
 }
 
 async function waitForRenderer(url) {

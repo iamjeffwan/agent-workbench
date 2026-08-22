@@ -7,6 +7,7 @@
   "scripts": {
     "build": "pnpm --filter @agent-workbench/observation-schema build && pnpm --filter @agent-workbench/timeline build && pnpm --filter @agent-workbench/codex-adapter build && pnpm --filter @agent-workbench/project-observation build && pnpm --filter @agent-workbench/local-database build && pnpm --filter @agent-workbench/review build && pnpm --filter @agent-workbench/desktop build",
     "test": "node scripts/test-agent-workbench.mjs",
+    "install:deps": "node scripts/install-dependencies.mjs",
     "bench": "node bench/run.mjs",
     "bench:diff": "node bench/diff.mjs",
     "review:test:codex": "pnpm --filter @agent-workbench/local-database build && pnpm --filter @agent-workbench/review build && node scripts/run-review-with-codex.mjs",
