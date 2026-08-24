@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { adaptCodexSession } from '@agent-workbench/codex-adapter';
 import { createReviewObservationService } from '../electron/review-observation-service.mjs';
 
 test('prepares a complete review case, evidence package, and project context from selected turns', async () => {
@@ -76,6 +77,37 @@ test('keeps the missing historical project observation explicit', async () => {
   assert.equal(result.data.evidencePackage.projectContext.files[0].roles.includes('changed'), true);
 });
 
+test('resolves the original Codex turn id selected from history into review evidence', async () => {
+  const fixture = createFixture();
+  const turnId = '01a031fd-01e3-7b62-8332-49ab3500ad7e';
+  fs.writeFileSync(fixture.sessionFile, `${[
+    { type: 'session_meta', payload: { session_id: 'session-1', cwd: fixture.projectRoot, cli_version: '0.148.0' } },
+    { type: 'turn_context', payload: { turn_id: turnId, cwd: fixture.projectRoot } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Execute the plan' }], internal_chat_message_metadata_passthrough: { turn_id: turnId } } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Starting implementation.' }], internal_chat_message_metadata_passthrough: { turn_id: turnId } } },
+    { type: 'event_msg', payload: { type: 'task_complete', turn_id: turnId } },
+  ].map((value, index) => JSON.stringify({ ...value, timestamp: `2026-08-20T10:00:0${index}.000Z` })).join('\n')}\n`, 'utf8');
+
+  const service = createService(fixture, {
+    adaptSession: adaptCodexSession,
+    readProjectObservation: () => ({
+      status: 'ready',
+      data: { projectId: 'project-1', turns: {} },
+      error: null,
+    }),
+  });
+  const result = await service.prepareFromTurns({
+    projectRoot: fixture.projectRoot,
+    sessionId: 'session-1',
+    turnIds: [turnId],
+  });
+
+  assert.equal(result.status, 'ready', result.error);
+  assert.equal(result.data.evidencePackage.turns[0].userInput, 'Execute the plan');
+  assert.equal(result.data.evidencePackage.gaps.some(gap => gap.code === 'missing_turn'), false);
+  assert.equal(result.data.evidencePackage.gaps.some(gap => gap.code === 'missing_user_input'), false);
+});
+
 function createService(fixture, overrides = {}) {
   return createReviewObservationService({
     resolveSessionFiles: () => ({
@@ -83,7 +115,7 @@ function createService(fixture, overrides = {}) {
       data: { sessionFiles: [fixture.sessionFile] },
       error: null,
     }),
-    adaptSession: () => observationSession(),
+    adaptSession: overrides.adaptSession ?? (() => observationSession()),
     readTask: overrides.readTask,
     readProjectObservation: overrides.readProjectObservation ?? (() => ({
       status: 'ready',

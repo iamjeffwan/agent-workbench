@@ -170,6 +170,7 @@ export interface HistoryTurnSummary {
   status: 'completed' | 'running' | 'aborted' | 'failed' | 'unknown';
   hasObservableActivity: boolean;
   activities: HistoryActivity[];
+  planTitles?: string[];
 }
 
 export interface SessionSummary {

@@ -372,7 +372,8 @@ const TurnButton = styled.button<{
   grid-template-columns: 20px minmax(0, 1fr) auto;
   grid-template-areas:
     'check prompt time'
-    'check tags tags';
+    'check tags tags'
+    'check plans plans';
   align-items: start;
   gap: 6px 9px;
   border: 0;
@@ -460,6 +461,32 @@ const ActivityTag = styled.span<{ $muted?: boolean }>`
   font-weight: bold;
   line-height: 1.35;
   text-transform: uppercase;
+`;
+
+const PlanItems = styled.span`
+  grid-area: plans;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+`;
+
+const PlanItem = styled.span`
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: ${p => p.theme.mainLowlightColor};
+  font-size: 12px;
+  line-height: 1.35;
+
+  svg { flex: 0 0 auto; }
+`;
+
+const PlanTitle = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const SelectionLockNotice = styled.div`
@@ -692,7 +719,7 @@ export function HistoryModal({
   const filteredTurns = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
     return [...(details?.turns ?? [])]
-      .filter(turn => !needle || [turn.userInput, turn.activities.join(' '), turn.status]
+      .filter(turn => !needle || [turn.userInput, (turn.planTitles ?? []).join(' '), turn.activities.join(' '), turn.status]
         .join(' ').toLowerCase().includes(needle))
       .sort((left, right) => timestamp(right.startedAt) - timestamp(left.startedAt));
   }, [details, query]);
@@ -1070,6 +1097,7 @@ function TurnList({
         <h2>{day}</h2>
         {items.map(turn => {
           const selected = selectedTurns.some(value => sameTurn(value, turn));
+          const planTitles = turn.planTitles ?? [];
           return (
             <TurnButton
               type="button"
@@ -1094,6 +1122,13 @@ function TurnList({
                   ? turn.activities.map(activity => <ActivityTag key={activity}>{activity}</ActivityTag>)
                   : <ActivityTag $muted>No observable activity</ActivityTag>}
               </ActivityTags>
+              {planTitles.length > 0 ? <PlanItems>
+                {planTitles.map((title, index) => <PlanItem key={`${title}:${index}`} title={title}>
+                  <ClipboardText size={14} weight="bold" aria-hidden="true" />
+                  <ActivityTag>Plan</ActivityTag>
+                  <PlanTitle>{title}</PlanTitle>
+                </PlanItem>)}
+              </PlanItems> : null}
             </TurnButton>
           );
         })}

@@ -72,6 +72,7 @@ export type ObservationTurn = {
   turnId: string;
   sequence: number;
   sourceRef: RawRef;
+  fieldProvenance?: Record<string, Provenance>;
   startedAt?: string;
   endedAt?: string;
   status?: 'completed' | 'aborted' | 'in_progress';

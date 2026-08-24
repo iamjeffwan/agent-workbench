@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { findCodexSessions } from './find-sessions.js';
+import { derivedTurnId, nativeTurnIdFromPayload } from './turn-identity.js';
 import type { CodexRolloutLine } from './types.js';
 
 const MAX_TITLE_CHARS = 120;
@@ -35,6 +36,7 @@ export type CodexHistoryTurn = {
   sessionId: string;
   userInput: string;
   userInputs: CodexHistoryUserInput[];
+  planTitles: string[];
   startedAt: string | null;
   updatedAt: string | null;
   cwd: string;
@@ -83,6 +85,7 @@ type MutableTurn = {
   status: CodexHistoryTurnStatus;
   activities: Set<CodexHistoryActivity>;
   userInputs: CodexHistoryUserInput[];
+  planTitles: string[];
   seenUserInputIds: Set<string>;
 };
 
@@ -190,11 +193,12 @@ function parseSessionFile(sessionFile: string): ParsedSession {
     turns: new Map(),
   };
   let currentTurnId: string | undefined;
+  let currentCwd: string | undefined;
   let sessionMetadataSeen = false;
 
   const text = fs.readFileSync(absoluteFile, 'utf8');
 
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
     if (!rawLine.trim()) continue;
     let event: CodexRolloutLine;
     try {
@@ -219,22 +223,23 @@ function parseSessionFile(sessionFile: string): ParsedSession {
     }
 
     if (event.type === 'turn_context') {
-      const turnId = stringOrNull(event.payload.turn_id);
+      const turnId = nativeTurnIdFromPayload(event.payload);
+      const cwd = stringOrNull(event.payload.cwd);
+      currentCwd = cwd ? path.resolve(cwd) : undefined;
       if (!turnId) {
         currentTurnId = undefined;
         continue;
       }
       currentTurnId = turnId;
       const turn = ensureTurn(session.turns, turnId);
-      const cwd = stringOrNull(event.payload.cwd);
-      turn.cwd = cwd ? path.resolve(cwd) : undefined;
+      turn.cwd = currentCwd;
       touchTurn(turn, event.timestamp);
       continue;
     }
 
     if (event.type === 'event_msg') {
       const eventType = stringOrNull(event.payload.type);
-      const explicitTurnId = stringOrNull(event.payload.turn_id);
+      const explicitTurnId = nativeTurnIdFromPayload(event.payload);
       if (eventType === 'task_started') {
         if (explicitTurnId && explicitTurnId !== currentTurnId) {
           currentTurnId = explicitTurnId;
@@ -280,13 +285,20 @@ function parseSessionFile(sessionFile: string): ParsedSession {
 
     if (event.type !== 'response_item') continue;
 
-    const metadataTurnId = metadataTurnIdFrom(event.payload);
-    const turnId = metadataTurnId ?? currentTurnId;
+    const payloadType = stringOrNull(event.payload.type);
+    const nativeTurnId = nativeTurnIdFromPayload(event.payload);
+    let turnId = nativeTurnId ?? currentTurnId;
+    if (!turnId && payloadType === 'message' && event.payload.role === 'user') {
+      const rawText = userMessageText(event.payload.content);
+      if (!rawText || isInjectedRuntimeContext(rawText) || !rawText.trim() || !currentCwd) continue;
+      turnId = derivedTurnId(session.id, index + 1);
+      currentTurnId = turnId;
+    }
     if (!turnId) continue;
     const turn = ensureTurn(session.turns, turnId);
+    if (!turn.cwd && currentCwd) turn.cwd = currentCwd;
     touchTurn(turn, event.timestamp);
 
-    const payloadType = stringOrNull(event.payload.type);
     if (payloadType === 'message' && event.payload.role === 'user') {
       const rawText = userMessageText(event.payload.content);
       if (!rawText || isInjectedRuntimeContext(rawText)) continue;
@@ -304,6 +316,13 @@ function parseSessionFile(sessionFile: string): ParsedSession {
         text: rawText,
         timestamp: isoTimestamp(event.timestamp),
       });
+      continue;
+    }
+
+    if (payloadType === 'message' && event.payload.role === 'assistant') {
+      for (const title of planTitlesFromMessage(event.payload.content)) {
+        if (!turn.planTitles.includes(title)) turn.planTitles.push(title);
+      }
       continue;
     }
 
@@ -361,6 +380,7 @@ function finalizeTurn(turn: MutableTurn, sessionId: string): CodexHistoryTurn {
     sessionId,
     userInput: combined,
     userInputs: turn.userInputs,
+    planTitles: turn.planTitles,
     startedAt: turn.startedAt,
     updatedAt: turn.updatedAt,
     cwd: path.resolve(turn.cwd!),
@@ -380,6 +400,7 @@ function ensureTurn(turns: Map<string, MutableTurn>, turnId: string): MutableTur
     status: 'unknown',
     activities: new Set(),
     userInputs: [],
+    planTitles: [],
     seenUserInputIds: new Set(),
   };
   turns.set(turnId, turn);
@@ -515,12 +536,6 @@ function orderedActivities(values: Set<CodexHistoryActivity>): CodexHistoryActiv
   return order.filter(activity => values.has(activity));
 }
 
-function metadataTurnIdFrom(payload: Record<string, unknown>): string | null {
-  const metadata = payload.internal_chat_message_metadata_passthrough;
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
-  return stringOrNull((metadata as Record<string, unknown>).turn_id);
-}
-
 function userMessageText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -530,12 +545,24 @@ function userMessageText(content: unknown): string {
       if (!part || typeof part !== 'object' || Array.isArray(part)) return '';
       const item = part as Record<string, unknown>;
       const type = stringOrNull(item.type);
-      return type === 'input_text' || type === 'text'
+      return type === 'input_text' || type === 'output_text' || type === 'text'
         ? stringOrNull(item.text) ?? ''
         : '';
     })
     .filter(Boolean)
     .join('\n');
+}
+
+function planTitlesFromMessage(content: unknown): string[] {
+  const text = userMessageText(content);
+  if (!text) return [];
+  const titles: string[] = [];
+  const blocks = text.matchAll(/<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_plan>/g);
+  for (const block of blocks) {
+    const heading = block[1]?.match(/^\s*#\s+(.+?)\s*$/m)?.[1]?.trim();
+    titles.push(heading || '未命名计划');
+  }
+  return titles;
 }
 
 function isInjectedRuntimeContext(text: string): boolean {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  adaptCodexSession,
   listCodexSessionProjects,
   listCodexProjectSessions,
   readCodexProjectSession,
@@ -91,6 +92,77 @@ test('lists project turns by turn_context cwd and keeps their user input', () =>
   assert.equal(session.turns[1].hasObservableActivity, false);
   assert.equal(session.startedAt, '2026-08-10T01:01:00.000Z');
   assert.equal(session.updatedAt, '2026-08-10T01:03:02.000Z');
+});
+
+test('exposes final plan titles on the turn that contains the assistant plan', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-history-plan-'));
+  const projectRoot = path.join(root, 'project');
+  const sessionsDir = path.join(root, 'sessions');
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const sessionFile = path.join(sessionsDir, 'rollout-plan.jsonl');
+
+  writeRollout(sessionFile, [
+    row('2026-08-10T01:00:00.000Z', 'session_meta', {
+      session_id: 'session-plan', thread_source: 'user',
+    }),
+    row('2026-08-10T01:01:00.000Z', 'turn_context', {
+      turn_id: 'plan-turn', cwd: projectRoot,
+    }),
+    userRow('2026-08-10T01:01:01.000Z', 'plan-turn', 'Create an implementation plan'),
+    row('2026-08-10T01:01:02.000Z', 'response_item', {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: '<proposed_plan>\n# Review flow plan\n\nImplement the flow.\n</proposed_plan>' }],
+      internal_chat_message_metadata_passthrough: { turn_id: 'plan-turn' },
+    }),
+    row('2026-08-10T01:01:03.000Z', 'response_item', {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: '<proposed_plan>\nImplement the follow-up.\n</proposed_plan>' }],
+      internal_chat_message_metadata_passthrough: { turn_id: 'plan-turn' },
+    }),
+    row('2026-08-10T01:02:00.000Z', 'turn_context', {
+      turn_id: 'execute-turn', cwd: projectRoot,
+    }),
+    userRow('2026-08-10T01:02:01.000Z', 'execute-turn', 'Execute the plan'),
+  ]);
+
+  const [session] = listCodexProjectSessions({ projectRoot, sessionsDir });
+  assert.deepEqual(session.turns.map(turn => turn.planTitles), [
+    ['Review flow plan', '未命名计划'],
+    [],
+  ]);
+});
+
+test('uses the same derived turn identity in history and review adaptation when a source id is absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-history-derived-turn-'));
+  const projectRoot = path.join(root, 'project');
+  const sessionsDir = path.join(root, 'sessions');
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const sessionFile = path.join(sessionsDir, 'rollout-derived.jsonl');
+
+  writeRollout(sessionFile, [
+    row('2026-08-10T01:00:00.000Z', 'session_meta', {
+      session_id: 'session-derived', thread_source: 'user',
+    }),
+    row('2026-08-10T01:01:00.000Z', 'turn_context', { cwd: projectRoot }),
+    row('2026-08-10T01:01:01.000Z', 'response_item', {
+      type: 'message', role: 'user', id: 'input-derived',
+      content: [{ type: 'input_text', text: 'Explain the existing implementation' }],
+    }),
+    row('2026-08-10T01:01:02.000Z', 'response_item', {
+      type: 'message', role: 'assistant', id: 'output-derived',
+      content: [{ type: 'output_text', text: 'Here is the explanation.' }],
+    }),
+  ]);
+
+  const [history] = listCodexProjectSessions({ projectRoot, sessionsDir });
+  const observation = adaptCodexSession(sessionFile);
+  assert.equal(history.turns.length, 1);
+  assert.equal(history.turns[0].id, observation.turns[0].turnId);
+  assert.match(history.turns[0].id, /^derived-/);
 });
 
 test('uses response metadata before current context and never guesses project ownership', () => {
