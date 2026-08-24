@@ -18,8 +18,11 @@ contextBridge.exposeInMainWorld('workbench', {
   createTask: (input) => ipcRenderer.invoke('tasks:create', input),
   discussTask: (taskId, message) => ipcRenderer.invoke('tasks:discuss', taskId, message),
   saveTaskScript: (taskId, input) => ipcRenderer.invoke('tasks:saveScript', taskId, input),
-  prepareReviewFromTask: (taskId, options) => ipcRenderer.invoke('review:prepareFromTask', taskId, options),
-  prepareReviewFromTurns: (input) => ipcRenderer.invoke('review:prepareFromTurns', input),
+  startReview: (input) => ipcRenderer.invoke('review:start', input),
+  listReviews: (projectRoot) => ipcRenderer.invoke('review:list', projectRoot),
+  getReview: (projectRoot, caseId) => ipcRenderer.invoke('review:get', projectRoot, caseId),
+  resolveReviewEvidence: (projectRoot, caseId, evidenceId) => ipcRenderer.invoke('review:resolveEvidence', projectRoot, caseId, evidenceId),
+  appendReviewAnnotation: (projectRoot, input) => ipcRenderer.invoke('review:appendAnnotation', projectRoot, input),
   listSyncTasks: (projectRoot) => ipcRenderer.invoke('sync:listTasks', projectRoot),
   readSyncTask: (projectRoot, taskId) => ipcRenderer.invoke('sync:readTask', projectRoot, taskId),
   addTaskToSync: (taskId) => ipcRenderer.invoke('sync:addTask', taskId),
@@ -31,6 +34,11 @@ contextBridge.exposeInMainWorld('workbench', {
     const listener = (_event, change) => handler(change);
     ipcRenderer.on('tasks:changed', listener);
     return () => ipcRenderer.removeListener('tasks:changed', listener);
+  },
+  onReviewChanged: (handler) => {
+    const listener = (_event, change) => handler(change);
+    ipcRenderer.on('review:changed', listener);
+    return () => ipcRenderer.removeListener('review:changed', listener);
   },
   listProjectAssets: (projectRoot) => ipcRenderer.invoke('assets:list', projectRoot),
   readProjectAsset: (projectRoot, relativePath) => ipcRenderer.invoke('assets:read', projectRoot, relativePath),

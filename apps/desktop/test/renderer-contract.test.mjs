@@ -19,8 +19,12 @@ test('preload keeps the workbench operations available for later UI integration'
     'testDeepSeekConnection',
     'listModelCalls',
     'readModelCall',
-    'prepareReviewFromTask',
-    'prepareReviewFromTurns',
+    'startReview',
+    'listReviews',
+    'getReview',
+    'resolveReviewEvidence',
+    'appendReviewAnnotation',
+    'onReviewChanged',
     'onState',
   ]) {
     assert.match(preload, new RegExp(`\\b${operation}\\s*:`));
@@ -117,6 +121,15 @@ test('desktop loads the production build and uses a development URL only when co
   assert.match(main, /sandbox:\s*true/);
 });
 
+test('desktop review storage does not load Electron-incompatible node sqlite bindings', () => {
+  const workflow = fs.readFileSync(path.join(desktopRoot, 'electron/review-workflow-service.mjs'), 'utf8');
+  const database = fs.readFileSync(path.join(desktopRoot, 'electron/local-review-database.mjs'), 'utf8');
+
+  assert.doesNotMatch(workflow, /@agent-workbench\/local-database/);
+  assert.doesNotMatch(database, /(?:from|import)\s*['\"]node:sqlite/);
+  assert.match(database, /import\('better-sqlite3'\)/);
+});
+
 test('formal desktop entry loads the connected workbench UI', () => {
   const rootPackage = JSON.parse(fs.readFileSync(path.join(desktopRoot, '../../package.json'), 'utf8'));
   const desktopPackage = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'));
@@ -129,6 +142,7 @@ test('formal desktop entry loads the connected workbench UI', () => {
   assert.match(runner, /\?mode=workbench-preview/);
   assert.match(runner, /process\.once\('SIGINT'/);
   assert.match(runner, /process\.once\('SIGTERM'/);
+  assert.match(runner, /resolveElectronBinary/);
   assert.match(runner, /taskkill/);
   assert.match(runner, /'\/T', '\/F'/);
   assert.match(app, /<PreviewApp page=\{selectedPage\}/);

@@ -22,6 +22,7 @@ import { createFlowDocumentGenerator } from './flow-document-generator.mjs';
 import { createProjectAssetsService } from './project-assets.mjs';
 import { createProjectObservationService } from './project-observation-service.mjs';
 import { createReviewObservationService } from './review-observation-service.mjs';
+import { createReviewWorkflowService } from './review-workflow-service.mjs';
 import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
@@ -76,6 +77,12 @@ const reviewObservation = createReviewObservationService({
   readTask: taskId => taskLibrary.readTask(taskId),
   readProjectObservation: projectRoot => projectObservation.read(projectRoot),
 });
+const reviewWorkflow = createReviewWorkflowService({
+  reviewObservation,
+  projectObservation,
+  getUserDataPath: () => app.getPath('userData'),
+});
+reviewWorkflow.onChange(change => publishReviewUpdate(change));
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.agentworkbench.desktop');
@@ -175,6 +182,11 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+function publishReviewUpdate(change) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('review:changed', change);
 }
 
 function refreshState() {
@@ -584,10 +596,13 @@ app.whenReady().then(() => {
   ipcMain.handle('tasks:create', (_event, input) => taskLibrary.createTask(input));
   ipcMain.handle('tasks:discuss', (_event, taskId, message) => taskLibrary.discuss(taskId, message));
   ipcMain.handle('tasks:saveScript', (_event, taskId, input) => taskLibrary.saveScript(taskId, input));
-  ipcMain.handle('review:prepareFromTask', (_event, taskId, options) =>
-    reviewObservation.prepareFromTask(taskId, options));
-  ipcMain.handle('review:prepareFromTurns', (_event, input) =>
-    reviewObservation.prepareFromTurns(input));
+  ipcMain.handle('review:start', (_event, input) => reviewWorkflow.start(input));
+  ipcMain.handle('review:list', (_event, projectRoot) => reviewWorkflow.list(projectRoot ?? state.projectRoot));
+  ipcMain.handle('review:get', (_event, projectRoot, caseId) => reviewWorkflow.get(projectRoot ?? state.projectRoot, caseId));
+  ipcMain.handle('review:resolveEvidence', (_event, projectRoot, caseId, evidenceId) =>
+    reviewWorkflow.resolveEvidence(projectRoot ?? state.projectRoot, caseId, evidenceId));
+  ipcMain.handle('review:appendAnnotation', (_event, projectRoot, input) =>
+    reviewWorkflow.appendAnnotation(projectRoot ?? state.projectRoot, input));
   ipcMain.handle('sync:listTasks', (_event, projectRoot) => projectSync.listSyncTasks(projectRoot ?? state.projectRoot));
   ipcMain.handle('sync:readTask', (_event, projectRoot, taskId) => projectSync.readSyncTask(projectRoot ?? state.projectRoot, taskId));
   ipcMain.handle('sync:addTask', (_event, taskId) => projectSync.addTaskToSync(taskId));
@@ -632,4 +647,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  reviewWorkflow.close();
 });

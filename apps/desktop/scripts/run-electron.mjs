@@ -42,7 +42,8 @@ function resolveViteCli() {
 }
 
 const electronCli = resolveElectronCli();
-if (!electronCli) {
+const electronBinary = resolveElectronBinary();
+if (!electronCli && !electronBinary) {
   console.error(
     '[desktop] electron is not installed. Run from repo root:\n  pnpm install\n  pnpm --filter @agent-workbench/desktop add -D electron',
   );
@@ -119,8 +120,10 @@ async function runDevelopment() {
 
 function runElectron(environment) {
   const child = spawn(
-    process.execPath,
-    [electronCli, appRoot, ...forwardedArguments],
+    electronBinary ?? process.execPath,
+    electronBinary
+      ? [appRoot, ...forwardedArguments]
+      : [electronCli, appRoot, ...forwardedArguments],
     {
       cwd: appRoot,
       stdio: 'inherit',
@@ -143,6 +146,15 @@ function runElectron(environment) {
     process.exit(signal ? 1 : code ?? 1);
   });
   return child;
+}
+
+function resolveElectronBinary() {
+  try {
+    const binary = require('electron');
+    return typeof binary === 'string' && fs.existsSync(binary) ? binary : null;
+  } catch {
+    return null;
+  }
 }
 
 function shutdown(code) {
