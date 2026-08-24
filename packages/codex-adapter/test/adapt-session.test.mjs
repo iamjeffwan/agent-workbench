@@ -19,8 +19,9 @@ test('adaptCodexSession returns a valid canonical observation session', () => {
   assert.equal(observation.turns.length, 1);
 
   const [turn] = observation.turns;
-  assert.equal(turn.turnId, 'turn-0001');
+  assert.equal(turn.turnId, 'native-turn-a');
   assert.equal(turn.sourceRef.sourceId, 'native-turn-a');
+  assert.equal(turn.fieldProvenance.turnId, 'direct');
   assert.deepEqual(turn.events.map(event => event.type), [
     'message',
     'lifecycle',
@@ -33,6 +34,8 @@ test('adaptCodexSession returns a valid canonical observation session', () => {
   ]);
   assert.ok(turn.events.every(event => event.rawRef.line >= 1));
   assert.ok(turn.events.every(event => event.provenance === 'direct'));
+  assert.ok(turn.events.every(event => event.turnId === 'native-turn-a'));
+  assert.ok(turn.events.every(event => event.fieldProvenance.turnId === 'direct'));
   assert.equal(turn.usage.totalTokens, 14);
   assert.equal(observation.diagnostics.unknownSourceEventCount, 0);
   assert.equal(observation.diagnostics.parseErrorCount, 0);

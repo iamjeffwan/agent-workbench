@@ -16,6 +16,7 @@ import {
   redactCredentials,
   redactCredentialText,
 } from '@agent-workbench/security';
+import { derivedTurnId, nativeTurnIdFromPayload } from './turn-identity.js';
 
 const DEFAULT_ADAPTER_VERSION = '0.1.0';
 const MAX_CONTENT_CHARS = 4_000;
@@ -95,26 +96,52 @@ export function adaptCodexSession(
   let lastTimestamp: string | undefined;
 
   const ensureTurn = (record: { line: number; value: SourceRecord }, newUserBoundary = false): MutableTurn => {
+    const nativeTurnId = nativeTurnIdFromPayload(recordPayload(record.value)) ?? pendingContext?.turnId;
+    if (nativeTurnId) {
+      const existing = turns.find(turn => turn.turnId === nativeTurnId);
+      if (existing) {
+        currentTurn = existing;
+      } else {
+        currentTurn = createTurn(record, nativeTurnId, 'direct');
+      }
+      if (pendingContext?.turnId === nativeTurnId) pendingContext = undefined;
+      return currentTurn;
+    }
+
     if (!currentTurn || (newUserBoundary && currentTurn.hasUserMessage)) {
-      const context = pendingContext;
-      const turnId = `turn-${String(turns.length + 1).padStart(4, '0')}`;
-      const sourceType = context ? 'turn_context' : sourceEventType(record.value);
-      const timestamp = timestampValue(record.value.timestamp) ?? context?.timestamp;
-      currentTurn = {
-        turnId,
-        sequence: turns.length,
-        sourceRef: rawRef(sourceFile, context?.line ?? record.line, sourceType, context?.turnId),
-        ...(timestamp ? { startedAt: timestamp } : {}),
-        ...(context?.cwd ? { cwd: context.cwd } : {}),
-        ...(context?.model ? { model: context.model } : {}),
-        status: 'in_progress',
-        events: [],
-        hasUserMessage: false,
-      };
-      turns.push(currentTurn);
-      pendingContext = undefined;
+      currentTurn = createTurn(record, derivedTurnId(sessionId, record.line), 'derived');
     }
     return currentTurn;
+  };
+
+  const createTurn = (
+    record: { line: number; value: SourceRecord },
+    turnId: string,
+    turnIdProvenance: 'direct' | 'derived',
+  ): MutableTurn => {
+    const context = pendingContext;
+    const sourceType = context ? 'turn_context' : sourceEventType(record.value);
+    const timestamp = timestampValue(record.value.timestamp) ?? context?.timestamp;
+    const turn: MutableTurn = {
+      turnId,
+      sequence: turns.length,
+      sourceRef: rawRef(
+        sourceFile,
+        context?.line ?? record.line,
+        sourceType,
+        turnIdProvenance === 'direct' ? turnId : context?.turnId,
+      ),
+      fieldProvenance: { turnId: turnIdProvenance, sourceRef: context?.turnId ? 'direct' : 'supplemented' },
+      ...(timestamp ? { startedAt: timestamp } : {}),
+      ...(context?.cwd ? { cwd: context.cwd } : {}),
+      ...(context?.model ? { model: context.model } : {}),
+      status: 'in_progress',
+      events: [],
+      hasUserMessage: false,
+    };
+    turns.push(turn);
+    pendingContext = undefined;
+    return turn;
   };
 
   const appendEvent = (
@@ -154,7 +181,11 @@ export function adaptCodexSession(
       sourceEventType: sourceEventType(record.value),
       adapterVersion,
       provenance: 'direct',
-      fieldProvenance: { eventId: 'derived', turnId: 'derived', rawRef: 'supplemented' },
+      fieldProvenance: {
+        eventId: 'derived',
+        turnId: turn.fieldProvenance?.turnId ?? 'derived',
+        rawRef: 'supplemented',
+      },
       fidelity: 'full',
       rawRef: rawRef(sourceFile, record.line, sourceEventType(record.value), sourceId(record.value)),
       ...details,
@@ -470,7 +501,9 @@ function sourceEventType(record: SourceRecord): string {
 
 function sourceId(record: SourceRecord): string | undefined {
   const payload = recordPayload(record);
-  return stringValue(payload?.call_id) ?? stringValue(payload?.turn_id) ?? stringValue(payload?.id);
+  return stringValue(payload?.call_id)
+    ?? nativeTurnIdFromPayload(payload)
+    ?? stringValue(payload?.id);
 }
 
 function recordPayload(value: unknown): Record<string, unknown> | undefined {

@@ -78,6 +78,7 @@
         "turnId": { "type": "string", "minLength": 1 },
         "sequence": { "type": "integer", "minimum": 0 },
         "sourceRef": { "$ref": "#/$defs/rawRef" },
+        "fieldProvenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } },
         "startedAt": { "type": "string" },
         "endedAt": { "type": "string" },
         "status": { "enum": ["completed", "aborted", "in_progress"] },
