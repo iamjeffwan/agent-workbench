@@ -21,6 +21,7 @@ import type {
   TaskRecord,
   TaskResult,
   TaskSummary,
+  ReviewResult,
   TrackedSessionSelection,
   SyncResult,
   SyncTaskManifest,
@@ -617,6 +618,7 @@ interface HistoryModalProps {
   listSyncTasks(projectRoot: string): Promise<SyncResult<SyncTaskManifest[]>>;
   readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   onOpenSyncTask(task: SyncTaskRecord): void | Promise<void>;
+  startReview(input: { source: 'turns'; projectRoot: string; sessionId: string; turnIds: string[] }): Promise<ReviewResult<{ caseId: string } | null>>;
   taskUpdates: TaskSummary[];
   onSelected(turns: HistoryTurnSummary[]): void;
   onClose(): void;
@@ -634,6 +636,7 @@ export function HistoryModal({
   listSyncTasks,
   readSyncTask,
   onOpenSyncTask,
+  startReview,
   taskUpdates,
   onSelected,
   onClose,
@@ -653,6 +656,7 @@ export function HistoryModal({
   const [creatingTask, setCreatingTask] = React.useState(false);
   const [createdTask, setCreatedTask] = React.useState<TaskSummary | null>(null);
   const [syncingTask, setSyncingTask] = React.useState(false);
+  const [reviewStarting, setReviewStarting] = React.useState(false);
   const [syncMessage, setSyncMessage] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState('');
   const [loadingList, setLoadingList] = React.useState(true);
@@ -833,6 +837,20 @@ export function HistoryModal({
       : result.error ?? 'The task could not be added to Sync.');
   };
 
+  const startSelectedReview = async () => {
+    if (!activeProject || !activeSession || selectedInSession.length === 0 || reviewStarting) return;
+    setReviewStarting(true);
+    setError(null);
+    const result = await startReview({
+      source: 'turns',
+      projectRoot: activeProject.projectRoot,
+      sessionId: activeSession.id,
+      turnIds: selectedInSession.map(turn => turn.id),
+    });
+    setReviewStarting(false);
+    if (result.status !== 'ready') setError(result.error ?? 'The review could not be started.');
+  };
+
   const inTurns = activeSession !== null;
   const inSessions = activeProject !== null && !inTurns;
   const activeSessionTracked = activeSession
@@ -963,6 +981,14 @@ export function HistoryModal({
                 onClick={() => { void createSelectedTask(); }}
               >
                 {creatingTask ? 'Generating…' : 'Create task'}
+              </CreateTaskButton>
+              <CreateTaskButton
+                type="button"
+                $tracked={false}
+                disabled={reviewStarting}
+                onClick={() => { void startSelectedReview(); }}
+              >
+                {reviewStarting ? 'Starting review…' : 'Start review'}
               </CreateTaskButton>
             </>
           ) : (

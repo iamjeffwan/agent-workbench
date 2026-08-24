@@ -103,7 +103,7 @@ const Separator = styled.div`
 
 const workbenchEntries = [
   ['view', 'View', MagnifyingGlass],
-  ['sources', 'Sources', Plugs],
+  ['sources', 'Review', Plugs],
   ['library', 'Library', Pencil],
   ['send', 'Send', PaperPlaneTilt],
 ] as const;
