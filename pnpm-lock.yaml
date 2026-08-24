@@ -132,6 +132,15 @@ importers:
         specifier: ^5.7.0
         version: 5.7.2
 
+  packages/codex-cli-model:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.7.2
+
   packages/local-database:
     devDependencies:
       '@types/node':
@@ -165,6 +174,9 @@ importers:
 
   packages/review:
     dependencies:
+      '@agent-workbench/codex-cli-model':
+        specifier: workspace:*
+        version: link:../codex-cli-model
       '@agent-workbench/local-database':
         specifier: workspace:*
         version: link:../local-database

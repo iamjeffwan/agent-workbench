@@ -15,6 +15,7 @@ const packages = [
   { name: 'codex-adapter', root: 'packages/codex-adapter', build: true },
   { name: 'project-observation', root: 'packages/project-observation', build: true },
   { name: 'local-database', root: 'packages/local-database', build: true },
+  { name: 'codex-cli-model', root: 'packages/codex-cli-model', build: true },
   { name: 'review', root: 'packages/review', build: true },
   { name: 'desktop', root: 'apps/desktop', build: true, vite: true },
 ];

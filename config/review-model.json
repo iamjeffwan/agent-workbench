@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "codex-cli-model-config-1",
+  "model": "gpt-5.6-sol",
+  "provider": {
+    "id": "ai_3rcd",
+    "baseUrl": "https://ai.3rcd.com/v1",
+    "apiKeyEnv": "REVIEW_API_KEY"
+  }
+}

@@ -22,6 +22,7 @@
     "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
   },
   "dependencies": {
+    "@agent-workbench/codex-cli-model": "workspace:*",
     "@agent-workbench/local-database": "workspace:*",
     "@agent-workbench/observation-schema": "workspace:*",
     "@agent-workbench/project-observation": "workspace:*",
