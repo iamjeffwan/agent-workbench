@@ -300,6 +300,119 @@ export interface TaskResult<T> {
   error: string | null;
 }
 
+export type ReviewRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type ReviewSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type ReviewAnnotationVerdict = 'correct' | 'partially_correct' | 'incorrect';
+export type ReviewCategory = 'process_efficiency' | 'tool_usage' | 'repeated_failure' | 'architecture' | 'maintainability' | 'performance' | 'security' | 'testability';
+
+export interface ReviewSummary {
+  caseId: string;
+  sourceType: 'task' | 'manual_turn_selection' | 'daily_auto' | 're_review';
+  sourceTaskId: string | null;
+  turnCount: number;
+  createdAt: string;
+  runStatus: ReviewRunStatus;
+  completedAt: string | null;
+  failureReason: string | null;
+  judgementCount: number;
+  reviewedCount: number;
+  highestSeverity: ReviewSeverity | null;
+}
+
+export interface ReviewRecord {
+  schemaVersion: '1.0-draft';
+  reviewCase: {
+    caseId: string;
+    projectId: string;
+    sourceType: ReviewSummary['sourceType'];
+    sourceTaskId?: string;
+    turns: Array<{ sessionId: string; turnId: string }>;
+    createdAt: string;
+  };
+  runs: Array<{
+    runId: string;
+    caseId: string;
+    invocation: { provider: string; model: string; modelVersion?: string; promptVersion: string; reviewPolicyVersion: string; evidenceSchemaVersion: string };
+    startedAt: string;
+    completedAt?: string;
+    status: ReviewRunStatus;
+    latencyMs?: number;
+    failureReason?: string;
+  }>;
+  judgements: Array<{
+    judgementId: string;
+    runId: string;
+    category: ReviewCategory;
+    title: string;
+    summary: string;
+    severity: ReviewSeverity;
+    confidence: number;
+    impact: string;
+    alternativeExplanation: string;
+    recommendation: string;
+    reviewability: 'sufficient' | 'insufficient' | 'needs_raw' | 'needs_project_context';
+    createdAt: string;
+  }>;
+  evidence: Array<{
+    evidenceId: string;
+    judgementId: string;
+    evidenceType: string;
+    targetType: 'event' | 'turn_diff' | 'project_profile' | 'environment_snapshot' | 'environment_delta' | 'project_diff' | 'raw_ref' | 'project_file';
+    targetId: string;
+    description: string;
+    cachedExcerpt?: string;
+    contentHash?: string;
+  }>;
+  annotations: Array<{
+    annotationId: string;
+    judgementId: string;
+    annotatorId: string;
+    verdict: ReviewAnnotationVerdict;
+    correctedCategory?: ReviewCategory;
+    correctedSummary?: string;
+    reason?: string;
+    missingIssue?: string;
+    createdAt: string;
+  }>;
+}
+
+export type ReviewStartInput =
+  | { source: 'task'; taskId: string }
+  | { source: 'turns'; projectRoot: string; sessionId: string; turnIds: string[] };
+
+export interface ReviewAnnotationInput {
+  caseId: string;
+  judgementId: string;
+  verdict: ReviewAnnotationVerdict;
+  correctedCategory?: ReviewCategory;
+  correctedSummary?: string;
+  reason?: string;
+  missingIssue?: string;
+}
+
+export interface ReviewEvidenceResolution {
+  evidence: ReviewRecord['evidence'][number];
+  availability: 'available' | 'changed' | 'unavailable';
+  content: string;
+  currentContentHash?: string;
+  message?: string;
+  location: { kind: 'activity'; sessionId: string; turnId: string; eventId: string } | { kind: 'project_file'; relativePath: string } | { kind: 'inline' };
+}
+
+export interface ReviewChangeEvent {
+  caseId: string;
+  projectId: string;
+  state: 'created' | 'running' | 'completed' | 'failed' | 'annotated';
+  error?: string;
+}
+
+export interface ReviewResult<T> {
+  status: 'ready' | 'error';
+  source: 'workbench-review';
+  data: T;
+  error: string | null;
+}
+
 export interface SyncTaskManifest {
   version: number;
   id: string;
@@ -554,6 +667,11 @@ export interface WorkbenchBridge {
   createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
   discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  startReview(input: ReviewStartInput): Promise<ReviewResult<{ caseId: string } | null>>;
+  listReviews(projectRoot?: string | null): Promise<ReviewResult<ReviewSummary[]>>;
+  getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
+  resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
+  appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
   listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
   readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
@@ -562,6 +680,7 @@ export interface WorkbenchBridge {
   publishRepository(input: PublishRepositoryInput): Promise<RepositoryResult<RepositoryStatus | null>>;
   createGithubRepository(input: { projectRoot: string; name: string; privateRepository?: boolean }): Promise<RepositoryResult<RepositoryStatus | null>>;
   onTaskChanged(handler: (change: TaskChangeEvent) => void): () => void;
+  onReviewChanged(handler: (change: ReviewChangeEvent) => void): () => void;
   listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
   createProjectAssetDraft(input: CreateProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDraft | null>>;

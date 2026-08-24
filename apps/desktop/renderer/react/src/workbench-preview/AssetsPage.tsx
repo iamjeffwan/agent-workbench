@@ -25,6 +25,7 @@ import type {
   TaskRecord,
   TaskResult,
   TaskSummary,
+  ReviewResult,
 } from './workbench-data';
 
 const Page = styled.main`
@@ -317,6 +318,7 @@ export function AssetsPage({
   trashFolder,
   renameFile,
   trashFile,
+  startReview,
 }: {
   projectRoot: string | null;
   listAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
@@ -335,6 +337,7 @@ export function AssetsPage({
   trashFolder(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   renameFile?(projectRoot: string, relativePath: string, nextName: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   trashFile?(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
+  startReview(input: { source: 'task'; taskId: string }): Promise<ReviewResult<{ caseId: string } | null>>;
 }) {
   const [tab, setTab] = React.useState<'tasks' | 'docs'>('tasks');
   const [index, setIndex] = React.useState<ProjectAssetIndex | null>(null);
@@ -482,7 +485,7 @@ export function AssetsPage({
       </Groups>
     </Library>
     <Viewer>
-      {tab === 'tasks' ? <TaskWorkspace task={task} discussTask={discussTask} saveTaskScript={saveTaskScript} listAssets={listAssets} createDraft={createDraft} writeDraft={writeDraft} />
+      {tab === 'tasks' ? <TaskWorkspace task={task} discussTask={discussTask} saveTaskScript={saveTaskScript} listAssets={listAssets} createDraft={createDraft} writeDraft={writeDraft} startReview={startReview} />
         : <ContentScroll>{loading ? <Notice><SpinnerGap size={28} className="spin" /><strong>Loading documents…</strong></Notice>
         : error ? <Notice><strong>Documents unavailable</strong><span>{error}</span></Notice>
           : document ? <MarkdownDocument markdown={document.markdown} />
@@ -529,14 +532,23 @@ function FolderEditor({ value, depth, icon = 'folder', onChange, onSubmit, onCan
   return <InlineFolder style={{ paddingLeft: 9 + depth * 12 }} onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); onSubmit(); }}>{icon === 'file' ? <FileText size={14} /> : <Folder size={14} />}<input ref={input} value={value} aria-label={`${icon === 'file' ? 'Document' : 'Folder'} name`} onChange={event => onChange(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); onCancel(); } }} /><button type="submit" aria-label="Confirm" title="Confirm"><Check size={14} /></button><button type="button" aria-label="Cancel" title="Cancel" onClick={onCancel}><X size={14} /></button></InlineFolder>;
 }
 
-function TaskWorkspace({ task, discussTask, saveTaskScript, listAssets, createDraft, writeDraft }: { task: TaskRecord | null; discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>; saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>; listAssets: TaskAssetComposerProps['listAssets']; createDraft: TaskAssetComposerProps['createDraft']; writeDraft: TaskAssetComposerProps['writeDraft'] }) {
+function TaskWorkspace({ task, discussTask, saveTaskScript, listAssets, createDraft, writeDraft, startReview }: { task: TaskRecord | null; discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>; saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>; listAssets: TaskAssetComposerProps['listAssets']; createDraft: TaskAssetComposerProps['createDraft']; writeDraft: TaskAssetComposerProps['writeDraft']; startReview(input: { source: 'task'; taskId: string }): Promise<ReviewResult<{ caseId: string } | null>> }) {
   const [current, setCurrent] = React.useState(task);
   const [message, setMessage] = React.useState('');
   const [section, setSection] = React.useState<'flow' | 'discussion' | 'drafts' | 'scripts'>('flow');
+  const [reviewStarting, setReviewStarting] = React.useState(false);
+  const [reviewError, setReviewError] = React.useState<string | null>(null);
   React.useEffect(() => setCurrent(task), [task]);
   if (!current) return <Notice><strong>Select a task</strong></Notice>;
   if (!current.document) return <Notice>{current.status === 'failed' ? <><strong>Generation failed</strong><span>{current.error}</span></> : <><SpinnerGap size={28} className="spin" /><strong>Generating flow document…</strong></>}</Notice>;
-  return <Workspace><WorkspaceTabs><button data-active={section === 'flow'} onClick={() => setSection('flow')}>Flow document</button><button data-active={section === 'discussion'} onClick={() => setSection('discussion')}>Discussion</button><button data-active={section === 'drafts'} onClick={() => setSection('drafts')}>Drafts</button><button data-active={section === 'scripts'} onClick={() => setSection('scripts')}>Scripts</button></WorkspaceTabs><WorkspaceBody>{section === 'flow' ? <MarkdownDocument markdown={current.document.markdown} /> : section === 'discussion' ? <Panel><h2>Discussion</h2>{current.discussion.map(item => <p key={item.id}><strong>{item.role}</strong>: {item.content}</p>)}<textarea value={message} onChange={event => setMessage(event.target.value)} /><button disabled={!message.trim()} onClick={() => void discussTask(current.id, message).then(result => { if (result.data) setCurrent(result.data); setMessage(''); })}>Send</button></Panel> : section === 'drafts' ? <TaskAssetComposer task={current} listAssets={listAssets} createDraft={createDraft} writeDraft={writeDraft} /> : <ScriptWorkspace task={current} onSaved={setCurrent} saveTaskScript={saveTaskScript} />}</WorkspaceBody></Workspace>;
+  const launchReview = async () => {
+    if (reviewStarting) return;
+    setReviewStarting(true); setReviewError(null);
+    const result = await startReview({ source: 'task', taskId: current.id });
+    setReviewStarting(false);
+    if (result.status !== 'ready') setReviewError(result.error);
+  };
+  return <Workspace><WorkspaceTabs><button data-active={section === 'flow'} onClick={() => setSection('flow')}>Flow document</button><button data-active={section === 'discussion'} onClick={() => setSection('discussion')}>Discussion</button><button data-active={section === 'drafts'} onClick={() => setSection('drafts')}>Drafts</button><button data-active={section === 'scripts'} onClick={() => setSection('scripts')}>Scripts</button><button type="button" disabled={reviewStarting} onClick={() => { void launchReview(); }}>{reviewStarting ? 'Starting review…' : 'Start review'}</button></WorkspaceTabs>{reviewError ? <ScriptError role="alert">{reviewError}</ScriptError> : null}<WorkspaceBody>{section === 'flow' ? <MarkdownDocument markdown={current.document.markdown} /> : section === 'discussion' ? <Panel><h2>Discussion</h2>{current.discussion.map(item => <p key={item.id}><strong>{item.role}</strong>: {item.content}</p>)}<textarea value={message} onChange={event => setMessage(event.target.value)} /><button disabled={!message.trim()} onClick={() => void discussTask(current.id, message).then(result => { if (result.data) setCurrent(result.data); setMessage(''); })}>Send</button></Panel> : section === 'drafts' ? <TaskAssetComposer task={current} listAssets={listAssets} createDraft={createDraft} writeDraft={writeDraft} /> : <ScriptWorkspace task={current} onSaved={setCurrent} saveTaskScript={saveTaskScript} />}</WorkspaceBody></Workspace>;
 }
 
 function ScriptWorkspace({ task, saveTaskScript, onSaved }: { task: TaskRecord; saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>; onSaved(task: TaskRecord): void }) {

@@ -44,6 +44,13 @@ import type {
   TrackedSessionSelection,
   WriteProjectAssetDraftInput,
   WorkbenchState,
+  ReviewAnnotationInput,
+  ReviewChangeEvent,
+  ReviewEvidenceResolution,
+  ReviewRecord,
+  ReviewResult,
+  ReviewStartInput,
+  ReviewSummary,
 } from './workbench-data';
 import {
   createPreviewState,
@@ -82,7 +89,7 @@ const emptyWorkbenchState: WorkbenchState = {
   fileBus: { status: 'idle', directory: null, lastRefreshAt: null, error: null },
 };
 
-export function PreviewApp({ page }: { page: SidebarPage }) {
+export function PreviewApp({ page, onNavigate }: { page: SidebarPage; onNavigate?(page: SidebarPage): void }) {
   const connection = useWorkbenchState();
   const workbenchState = connection.state ?? emptyWorkbenchState;
   const turns = React.useMemo(
@@ -119,7 +126,14 @@ export function PreviewApp({ page }: { page: SidebarPage }) {
     onCreateTask={connection.createTask}
     onAddTaskToSync={connection.addTaskToSync}
     onDiscussTask={connection.discussTask}
-  onSaveTaskScript={connection.saveTaskScript}
+    onSaveTaskScript={connection.saveTaskScript}
+    onStartReview={connection.startReview}
+    onListReviews={connection.listReviews}
+    onGetReview={connection.getReview}
+    onResolveReviewEvidence={connection.resolveReviewEvidence}
+    onAppendReviewAnnotation={connection.appendReviewAnnotation}
+    reviewUpdates={connection.reviewUpdates}
+    onNavigate={onNavigate}
     onListSyncTasks={connection.listSyncTasks}
     onReadSyncTask={connection.readSyncTask}
     taskUpdates={connection.taskUpdates}
@@ -158,6 +172,13 @@ function PreviewWorkspace({
   onAddTaskToSync,
   onDiscussTask,
   onSaveTaskScript,
+  onStartReview,
+  onListReviews,
+  onGetReview,
+  onResolveReviewEvidence,
+  onAppendReviewAnnotation,
+  reviewUpdates,
+  onNavigate,
   onListSyncTasks,
   onReadSyncTask,
   taskUpdates,
@@ -193,6 +214,13 @@ function PreviewWorkspace({
   onAddTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
   onDiscussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   onSaveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  onStartReview(input: ReviewStartInput): Promise<ReviewResult<{ caseId: string } | null>>;
+  onListReviews(projectRoot?: string | null): Promise<ReviewResult<ReviewSummary[]>>;
+  onGetReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
+  onResolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
+  onAppendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
+  reviewUpdates: ReviewChangeEvent[];
+  onNavigate?(page: SidebarPage): void;
   onListSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
   onReadSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   taskUpdates: TaskSummary[];
@@ -213,6 +241,7 @@ function PreviewWorkspace({
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [modeChoiceOpen, setModeChoiceOpen] = React.useState(false);
   const [historySelection, setHistorySelection] = React.useState<HistoryTurnSummary[]>([]);
+  const [focusedReviewCaseId, setFocusedReviewCaseId] = React.useState<string | null>(null);
   const [syncTask, setSyncTask] = React.useState<SyncTaskRecord | null>(null);
   const [syncDocument, setSyncDocument] = React.useState<ProjectAssetDocument | null>(null);
   const [syncDocumentLoading, setSyncDocumentLoading] = React.useState(false);
@@ -409,9 +438,52 @@ function PreviewWorkspace({
     />
   );
 
+  const startReview = async (input: ReviewStartInput) => {
+    const result = await onStartReview(input);
+    if (result.status === 'ready' && result.data) {
+      setFocusedReviewCaseId(result.data.caseId);
+      onNavigate?.('sources');
+    }
+    return result;
+  };
+
+  const openEvidenceLocation = (location: ReviewEvidenceResolution['location']) => {
+    if (location.kind === 'activity') {
+      const target = turns.find(turn => turn.sessionId === location.sessionId && turn.generationId === location.turnId);
+      if (target) {
+        const selectedTurn: HistoryTurnSummary = {
+          id: target.generationId,
+          sessionId: target.sessionId,
+          userInput: '',
+          startedAt: new Date(target.startedAt).toISOString(),
+          updatedAt: new Date(target.lastObservableAt).toISOString(),
+          cwd: target.scope,
+          status: target.status === 'ERROR' ? 'failed' : target.status === 'RUNNING' ? 'running' : 'completed',
+          hasObservableActivity: true,
+          activities: target.activities,
+        };
+        selectHistory([selectedTurn]);
+        dispatch({ type: 'select-record', id: location.eventId, wideInspector: false });
+      }
+    } else if (location.kind === 'project_file') {
+      dispatch({ type: 'open-project-file', path: location.relativePath, changed: false });
+    }
+    onNavigate?.('view');
+  };
+
   if (page === 'sources') return <SourcesPage
+    projectRoot={projectRoot}
     selectedTurns={historySelection}
     reviewsByTurn={workbenchState.reviewsByTurn}
+    reviewUpdates={reviewUpdates}
+    focusedCaseId={focusedReviewCaseId}
+    startReview={startReview}
+    listReviews={onListReviews}
+    getReview={onGetReview}
+    resolveEvidence={onResolveReviewEvidence}
+    appendAnnotation={onAppendReviewAnnotation}
+    onFocusedCase={setFocusedReviewCaseId}
+    onOpenEvidenceLocation={openEvidenceLocation}
   />;
   if (page === 'library') return <AssetsPage
     projectRoot={projectRoot}
@@ -424,6 +496,7 @@ function PreviewWorkspace({
     saveTaskScript={onSaveTaskScript}
     createDraft={onCreateProjectAssetDraft}
     writeDraft={onWriteProjectAssetDraft}
+    startReview={startReview}
     initializeDocs={onInitializeProjectDocs}
     createFolder={onCreateProjectDocsFolder}
     renameFolder={onRenameProjectDocsFolder}
@@ -483,6 +556,7 @@ function PreviewWorkspace({
         listSyncTasks={onListSyncTasks}
         readSyncTask={onReadSyncTask}
         onOpenSyncTask={openSyncTask}
+        startReview={startReview}
         taskUpdates={taskUpdates}
         onSelected={selectHistory}
         onClose={() => setHistoryOpen(false)}

@@ -13,6 +13,13 @@ import type {
   PublishRepositoryInput,
   RepositoryResult,
   RepositoryStatus,
+  ReviewAnnotationInput,
+  ReviewChangeEvent,
+  ReviewEvidenceResolution,
+  ReviewRecord,
+  ReviewResult,
+  ReviewStartInput,
+  ReviewSummary,
   SaveTaskScriptInput,
   SyncResult,
   SyncTaskManifest,
@@ -44,6 +51,11 @@ export interface WorkbenchConnection {
   createTask(input: CreateTaskInput): Promise<TaskResult<TaskRecord | null>>;
   discussTask(taskId: string, message: string): Promise<TaskResult<TaskRecord | null>>;
   saveTaskScript(taskId: string, input: SaveTaskScriptInput): Promise<TaskResult<TaskRecord | null>>;
+  startReview(input: ReviewStartInput): Promise<ReviewResult<{ caseId: string } | null>>;
+  listReviews(projectRoot?: string | null): Promise<ReviewResult<ReviewSummary[]>>;
+  getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
+  resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
+  appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
   listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
   readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
@@ -53,6 +65,7 @@ export interface WorkbenchConnection {
   createGithubRepository(input: { projectRoot: string; name: string; privateRepository?: boolean }): Promise<RepositoryResult<RepositoryStatus | null>>;
   taskUpdates: TaskSummary[];
   taskActivities: TaskChangeEvent[];
+  reviewUpdates: ReviewChangeEvent[];
   listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
   createProjectAssetDraft(input: CreateProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDraft | null>>;
@@ -72,6 +85,7 @@ export function useWorkbenchState(): WorkbenchConnection {
   const [loading, setLoading] = React.useState(Boolean(bridge));
   const [taskUpdates, setTaskUpdates] = React.useState<TaskSummary[]>([]);
   const [taskActivities, setTaskActivities] = React.useState<TaskChangeEvent[]>([]);
+  const [reviewUpdates, setReviewUpdates] = React.useState<ReviewChangeEvent[]>([]);
 
   React.useEffect(() => {
     if (!bridge) return;
@@ -104,6 +118,10 @@ export function useWorkbenchState(): WorkbenchConnection {
     if (change.reason.startsWith('generation-')) {
       setTaskActivities(current => [change, ...current.filter(item => item.task.id !== change.task.id)]);
     }
+  }), [bridge]);
+
+  React.useEffect(() => bridge?.onReviewChanged(change => {
+    setReviewUpdates(current => [change, ...current.filter(item => item.caseId !== change.caseId || item.state !== change.state)]);
   }), [bridge]);
 
   const openProject = React.useCallback(async () => {
@@ -246,6 +264,36 @@ export function useWorkbenchState(): WorkbenchConnection {
     catch (error) { return failedTask<TaskRecord | null>(error, null); }
   }, [bridge]);
 
+  const startReview = React.useCallback(async (input: ReviewStartInput) => {
+    if (!bridge) return unavailableReview<{ caseId: string } | null>(null);
+    try { return await bridge.startReview(input); }
+    catch (error) { return failedReview<{ caseId: string } | null>(error, null); }
+  }, [bridge]);
+
+  const listReviews = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableReview<ReviewSummary[]>([]);
+    try { return await bridge.listReviews(projectRoot); }
+    catch (error) { return failedReview<ReviewSummary[]>(error, []); }
+  }, [bridge]);
+
+  const getReview = React.useCallback(async (projectRoot: string | null, caseId: string) => {
+    if (!bridge) return unavailableReview<ReviewRecord | null>(null);
+    try { return await bridge.getReview(projectRoot, caseId); }
+    catch (error) { return failedReview<ReviewRecord | null>(error, null); }
+  }, [bridge]);
+
+  const resolveReviewEvidence = React.useCallback(async (projectRoot: string | null, caseId: string, evidenceId: string) => {
+    if (!bridge) return unavailableReview<ReviewEvidenceResolution | null>(null);
+    try { return await bridge.resolveReviewEvidence(projectRoot, caseId, evidenceId); }
+    catch (error) { return failedReview<ReviewEvidenceResolution | null>(error, null); }
+  }, [bridge]);
+
+  const appendReviewAnnotation = React.useCallback(async (projectRoot: string | null, input: ReviewAnnotationInput) => {
+    if (!bridge) return unavailableReview<ReviewRecord | null>(null);
+    try { return await bridge.appendReviewAnnotation(projectRoot, input); }
+    catch (error) { return failedReview<ReviewRecord | null>(error, null); }
+  }, [bridge]);
+
   const listSyncTasks = React.useCallback(async (projectRoot?: string | null) => {
     if (!bridge) return unavailableSync<SyncTaskManifest[]>([]);
     try { return await bridge.listSyncTasks(projectRoot); }
@@ -348,6 +396,11 @@ export function useWorkbenchState(): WorkbenchConnection {
     createTask,
     discussTask,
     saveTaskScript,
+    startReview,
+    listReviews,
+    getReview,
+    resolveReviewEvidence,
+    appendReviewAnnotation,
     listSyncTasks,
     readSyncTask,
     addTaskToSync,
@@ -357,6 +410,7 @@ export function useWorkbenchState(): WorkbenchConnection {
     createGithubRepository,
     taskUpdates,
     taskActivities,
+    reviewUpdates,
     listProjectAssets,
     readProjectAsset,
     createProjectAssetDraft,
@@ -413,6 +467,14 @@ function failedTask<T>(error: unknown, data: T): TaskResult<T> {
     data,
     error: error instanceof Error ? error.message : 'Unable to read tasks.',
   };
+}
+
+function unavailableReview<T>(data: T): ReviewResult<T> {
+  return { status: 'error', source: 'workbench-review', data, error: 'Reviews are unavailable in the static preview.' };
+}
+
+function failedReview<T>(error: unknown, data: T): ReviewResult<T> {
+  return { status: 'error', source: 'workbench-review', data, error: error instanceof Error ? error.message : 'Unable to use reviews.' };
 }
 
 function unavailableSync<T>(data: T): SyncResult<T> {
