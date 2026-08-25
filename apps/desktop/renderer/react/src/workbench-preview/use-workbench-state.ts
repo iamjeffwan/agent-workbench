@@ -6,6 +6,7 @@ import type {
   SessionSummary,
   CreateTaskInput,
   CreateProjectAssetDraftInput,
+  DailyReviewScheduleState,
   ProjectAssetDocument,
   ProjectAssetDraft,
   ProjectAssetIndex,
@@ -56,6 +57,9 @@ export interface WorkbenchConnection {
   getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
   resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
+  dailyReviewSchedule: DailyReviewScheduleState | null;
+  runPendingDailyReview(projectRoot: string, localDate: string): Promise<ReviewResult<null>>;
+  snoozeDailyReview(projectRoot: string, localDate: string): Promise<DailyReviewScheduleState>;
   listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
   readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
@@ -86,6 +90,7 @@ export function useWorkbenchState(): WorkbenchConnection {
   const [taskUpdates, setTaskUpdates] = React.useState<TaskSummary[]>([]);
   const [taskActivities, setTaskActivities] = React.useState<TaskChangeEvent[]>([]);
   const [reviewUpdates, setReviewUpdates] = React.useState<ReviewChangeEvent[]>([]);
+  const [dailyReviewSchedule, setDailyReviewSchedule] = React.useState<DailyReviewScheduleState | null>(null);
 
   React.useEffect(() => {
     if (!bridge) return;
@@ -107,11 +112,14 @@ export function useWorkbenchState(): WorkbenchConnection {
       .finally(() => {
         if (active) setLoading(false);
       });
+    void bridge.getDailyReviewState().then(setDailyReviewSchedule).catch(() => {});
     return () => {
       active = false;
       unsubscribe();
     };
   }, [bridge]);
+
+  React.useEffect(() => bridge?.onDailyReviewChanged(change => setDailyReviewSchedule(change)), [bridge]);
 
   React.useEffect(() => bridge?.onTaskChanged(change => {
     setTaskUpdates(current => [change.task, ...current.filter(item => item.id !== change.task.id)]);
@@ -294,6 +302,23 @@ export function useWorkbenchState(): WorkbenchConnection {
     catch (error) { return failedReview<ReviewRecord | null>(error, null); }
   }, [bridge]);
 
+  const runPendingDailyReview = React.useCallback(async (projectRoot: string, localDate: string) => {
+    if (!bridge) return unavailableReview<null>(null);
+    try { return await bridge.runPendingDailyReview(projectRoot, localDate); }
+    catch (error) { return failedReview<null>(error, null); }
+  }, [bridge]);
+
+  const snoozeDailyReview = React.useCallback(async (projectRoot: string, localDate: string) => {
+    if (!bridge) return dailyReviewSchedule ?? { version: 1, started: false, projects: [], reminders: [] };
+    try {
+      const next = await bridge.snoozeDailyReview(projectRoot, localDate);
+      setDailyReviewSchedule(next);
+      return next;
+    } catch {
+      return dailyReviewSchedule ?? { version: 1, started: false, projects: [], reminders: [] };
+    }
+  }, [bridge, dailyReviewSchedule]);
+
   const listSyncTasks = React.useCallback(async (projectRoot?: string | null) => {
     if (!bridge) return unavailableSync<SyncTaskManifest[]>([]);
     try { return await bridge.listSyncTasks(projectRoot); }
@@ -401,6 +426,9 @@ export function useWorkbenchState(): WorkbenchConnection {
     getReview,
     resolveReviewEvidence,
     appendReviewAnnotation,
+    dailyReviewSchedule,
+    runPendingDailyReview,
+    snoozeDailyReview,
     listSyncTasks,
     readSyncTask,
     addTaskToSync,

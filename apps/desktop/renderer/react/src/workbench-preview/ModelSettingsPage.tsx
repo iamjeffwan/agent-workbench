@@ -7,6 +7,7 @@ import type {
   ModelCompletion,
   ModelResult,
   ModelStatus,
+  DailyReviewScheduleState,
 } from './workbench-data';
 import { parseModelCallEvents } from './model-call-format';
 
@@ -309,6 +310,19 @@ const Actions = styled.div`
   margin-top: 20px;
 `;
 
+const SchedulePanel = styled(Panel)`
+  margin-top: 22px;
+`;
+
+const ScheduleProject = styled.div`
+  padding: 12px 0;
+  border-top: 1px solid ${p => p.theme.containerBorder};
+  &:first-child { border-top: 0; }
+  strong, span { display: block; }
+  strong { overflow-wrap: anywhere; }
+  span { margin-top: 4px; color: ${p => p.theme.mainLowlightColor}; font-size: ${p => p.theme.smallPrintSize}; }
+`;
+
 const Button = styled.button<{ $primary?: boolean }>`
   min-height: 36px;
   padding: 7px 14px;
@@ -352,6 +366,9 @@ export function ModelSettingsPage() {
   const [calls, setCalls] = React.useState<ModelCallSummary[]>([]);
   const [selectedCallId, setSelectedCallId] = React.useState<string | null>(null);
   const [callDetails, setCallDetails] = React.useState<ModelCallEvent[] | null>(null);
+  const [schedule, setSchedule] = React.useState<DailyReviewScheduleState | null>(null);
+  const [currentProject, setCurrentProject] = React.useState<string | null>(null);
+  const [scheduleBusy, setScheduleBusy] = React.useState(false);
 
   const refreshCalls = React.useCallback(async () => {
     if (!bridge) return [];
@@ -394,13 +411,54 @@ export function ModelSettingsPage() {
       setMessage('Model settings are unavailable in the static preview.');
       return;
     }
-    void Promise.all([bridge.getModelStatus(), refreshCalls()])
-      .then(([modelStatus]) => applyStatus(modelStatus))
+    const unsubscribe = bridge.onDailyReviewChanged(next => setSchedule(next));
+    const unsubscribeState = bridge.onState(next => setCurrentProject(next.projectRoot));
+    void Promise.all([bridge.getModelStatus(), refreshCalls(), bridge.getState(), bridge.getDailyReviewState()])
+      .then(([modelStatus, _calls, state, dailySchedule]) => {
+        setCurrentProject(state.projectRoot);
+        setSchedule(dailySchedule);
+        applyStatus(modelStatus);
+      })
       .catch(caught => {
         setError(true);
         setMessage(errorMessage(caught));
       });
+    return () => {
+      unsubscribe();
+      unsubscribeState();
+    };
   }, [bridge, applyStatus, refreshCalls]);
+
+  const refreshSchedule = async () => {
+    if (!bridge) return;
+    setSchedule(await bridge.getDailyReviewState());
+  };
+
+  const registerProject = async () => {
+    if (!bridge || !currentProject) return;
+    setScheduleBusy(true);
+    try { setSchedule(await bridge.registerDailyReviewProject(currentProject)); }
+    finally { setScheduleBusy(false); }
+  };
+
+  const unregisterProject = async (projectRoot: string) => {
+    if (!bridge) return;
+    setScheduleBusy(true);
+    try { setSchedule(await bridge.unregisterDailyReviewProject(projectRoot)); }
+    finally { setScheduleBusy(false); }
+  };
+
+  const runPending = async (projectRoot: string, localDate: string) => {
+    if (!bridge) return;
+    setScheduleBusy(true);
+    try { await bridge.runPendingDailyReview(projectRoot, localDate); await refreshSchedule(); }
+    finally { setScheduleBusy(false); }
+  };
+
+  const snooze = async (projectRoot: string, localDate: string) => {
+    if (!bridge) return;
+    setSchedule(await bridge.snoozeDailyReview(projectRoot, localDate));
+  };
 
   const run = async (operation: () => Promise<ModelResult<ModelStatus>>) => {
     setBusy(true);
@@ -488,6 +546,35 @@ export function ModelSettingsPage() {
           </Status>
         </Body>
       </Panel>
+      <SchedulePanel>
+        <Header>
+          <h1>Daily review</h1>
+          <p>Registered projects are reviewed automatically at local midnight.</p>
+        </Header>
+        <Body>
+          <Hint>Current project: {currentProject ?? 'Open a project first.'}</Hint>
+          <Actions>
+            <Button $primary type="button" disabled={scheduleBusy || !currentProject || Boolean(schedule?.projects.some(item => item.projectRoot.toLowerCase() === currentProject?.toLowerCase()))} onClick={() => { void registerProject(); }}>
+              Register current project
+            </Button>
+          </Actions>
+          {schedule?.reminders.length ? <Status role="status"><WarningCircle size={20} /><span>{schedule.reminders.length} daily review date{schedule.reminders.length === 1 ? '' : 's'} need attention.</span></Status> : null}
+          {schedule?.reminders.map(reminder => <ScheduleProject key={`${reminder.projectRoot}:${reminder.localDate}`}>
+            <strong>{reminder.projectRoot}</strong>
+            <span>{reminder.localDate} · {reminder.lastError ?? 'Pending review'}</span>
+            <Actions>
+              <Button type="button" disabled={scheduleBusy} onClick={() => { void runPending(reminder.projectRoot, reminder.localDate); }}>Run now</Button>
+              <Button type="button" disabled={scheduleBusy} onClick={() => { void snooze(reminder.projectRoot, reminder.localDate); }}>Later</Button>
+            </Actions>
+          </ScheduleProject>)}
+          {schedule?.projects.map(project => <ScheduleProject key={project.projectRoot}>
+            <strong>{project.projectRoot}</strong>
+            <span>Status: {project.status} · Pending dates: {project.pendingDates.length}</span>
+            <Actions><Button type="button" disabled={scheduleBusy} onClick={() => { void unregisterProject(project.projectRoot); }}>Unregister</Button></Actions>
+          </ScheduleProject>)}
+          {schedule && schedule.projects.length === 0 ? <Hint>No project is registered for daily review.</Hint> : null}
+        </Body>
+      </SchedulePanel>
       <History>
         <HistoryTitle>Model call history</HistoryTitle>
         <HistoryGrid>

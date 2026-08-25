@@ -47,6 +47,7 @@ export function App() {
   const [acknowledgedActivities, setAcknowledgedActivities] = React.useState<Set<string>>(() => new Set());
   const connection = useWorkbenchState();
   const visibleActivities = connection.taskActivities.filter(change => !acknowledgedActivities.has(activityKey(change)));
+  const dailyReminders = connection.dailyReviewSchedule?.reminders ?? [];
   const working = visibleActivities.filter(change => change.task.status === 'queued' || change.task.status === 'generating');
   const failed = visibleActivities.filter(change => change.task.status === 'failed');
   const ready = visibleActivities.filter(change => change.task.status === 'ready');
@@ -86,6 +87,14 @@ export function App() {
           <button onClick={acknowledgeActivities} aria-label="Dismiss task activity">×</button>
           <h2>Task activity</h2>
           {visibleActivities.slice(0, 4).map(({ task }) => <p key={task.id} title={task.title}>{task.status.toUpperCase()} · {task.title}</p>)}
+        </ActivityCenter> : null}
+        {dailyReminders.length > 0 ? <ActivityCenter aria-label="Daily review reminders" style={{ bottom: 18 + (visibleActivities.length > 0 ? 150 : 0) }}>
+          <h2>Daily review</h2>
+          {dailyReminders.slice(0, 4).map(reminder => <p key={`${reminder.projectRoot}:${reminder.localDate}`} title={reminder.projectRoot}>
+            {reminder.localDate} · {reminder.projectRoot}
+            <button type="button" onClick={() => { void connection.runPendingDailyReview(reminder.projectRoot, reminder.localDate); }}>Run</button>
+            <button type="button" onClick={() => { void connection.snoozeDailyReview(reminder.projectRoot, reminder.localDate); }}>Later</button>
+          </p>)}
         </ActivityCenter> : null}
       </AppContainer>
     </CompatibleThemeProvider>

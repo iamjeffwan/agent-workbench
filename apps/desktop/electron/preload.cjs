@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld('workbench', {
   getReview: (projectRoot, caseId) => ipcRenderer.invoke('review:get', projectRoot, caseId),
   resolveReviewEvidence: (projectRoot, caseId, evidenceId) => ipcRenderer.invoke('review:resolveEvidence', projectRoot, caseId, evidenceId),
   appendReviewAnnotation: (projectRoot, input) => ipcRenderer.invoke('review:appendAnnotation', projectRoot, input),
+  getDailyReviewState: () => ipcRenderer.invoke('daily-review:getState'),
+  registerDailyReviewProject: (projectRoot) => ipcRenderer.invoke('daily-review:register', projectRoot),
+  unregisterDailyReviewProject: (projectRoot) => ipcRenderer.invoke('daily-review:unregister', projectRoot),
+  runPendingDailyReview: (projectRoot, localDate) => ipcRenderer.invoke('daily-review:runPending', projectRoot, localDate),
+  snoozeDailyReview: (projectRoot, localDate) => ipcRenderer.invoke('daily-review:snooze', projectRoot, localDate),
   listSyncTasks: (projectRoot) => ipcRenderer.invoke('sync:listTasks', projectRoot),
   readSyncTask: (projectRoot, taskId) => ipcRenderer.invoke('sync:readTask', projectRoot, taskId),
   addTaskToSync: (taskId) => ipcRenderer.invoke('sync:addTask', taskId),
@@ -39,6 +44,11 @@ contextBridge.exposeInMainWorld('workbench', {
     const listener = (_event, change) => handler(change);
     ipcRenderer.on('review:changed', listener);
     return () => ipcRenderer.removeListener('review:changed', listener);
+  },
+  onDailyReviewChanged: (handler) => {
+    const listener = (_event, change) => handler(change);
+    ipcRenderer.on('daily-review:changed', listener);
+    return () => ipcRenderer.removeListener('daily-review:changed', listener);
   },
   listProjectAssets: (projectRoot) => ipcRenderer.invoke('assets:list', projectRoot),
   readProjectAsset: (projectRoot, relativePath) => ipcRenderer.invoke('assets:read', projectRoot, relativePath),
