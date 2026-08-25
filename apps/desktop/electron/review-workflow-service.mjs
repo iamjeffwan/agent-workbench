@@ -58,6 +58,7 @@ export function createReviewWorkflowService({
   let store = null;
   let recovered = false;
   let closed = false;
+  let operationQueue = Promise.resolve();
   /** @type {Set<string>} */
   const activeCases = new Set();
   /** @type {Set<(change: Record<string, unknown>) => void>} */
@@ -97,7 +98,7 @@ export function createReviewWorkflowService({
 
       activeCases.add(reviewCase.caseId);
       publish({ caseId: reviewCase.caseId, projectId: reviewCase.projectId, state: 'created' });
-      void execute(reviewCase, evidencePackage, selection, dependencies.store)
+      void enqueue(() => execute(reviewCase, evidencePackage, selection, dependencies.store))
         .finally(() => activeCases.delete(reviewCase.caseId));
       return ready({ caseId: reviewCase.caseId });
     },
@@ -180,7 +181,7 @@ export function createReviewWorkflowService({
 
     async runDaily(projectRoot, options = {}) {
       if (!dailyReview) return failed(null, 'Daily review is not configured.');
-      return dailyReview.run(projectRoot, options);
+      return enqueue(() => dailyReview.run(projectRoot, options));
     },
 
     onChange(listener) {
@@ -207,6 +208,12 @@ export function createReviewWorkflowService({
       await recoverInterruptedRuns(store);
     }
     return { store };
+  }
+
+  function enqueue(operation) {
+    const result = operationQueue.then(operation);
+    operationQueue = result.catch(() => {});
+    return result;
   }
 
   async function prepare(input) {

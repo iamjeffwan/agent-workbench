@@ -409,6 +409,22 @@ export interface ReviewResult<T> {
   error: string | null;
 }
 
+export interface DailyReviewScheduleProject {
+  projectRoot: string;
+  registeredAt: string;
+  pendingDates: string[];
+  status: 'idle' | 'queued' | 'running' | 'completed' | 'failed';
+  lastRun: { localDate: string; status: 'completed' | 'failed'; completedAt: string; error: string | null } | null;
+  lastError: string | null;
+}
+
+export interface DailyReviewScheduleState {
+  version: 1;
+  started: boolean;
+  projects: DailyReviewScheduleProject[];
+  reminders: Array<{ projectRoot: string; localDate: string; status: DailyReviewScheduleProject['status']; lastError: string | null }>;
+}
+
 export interface SyncTaskManifest {
   version: number;
   id: string;
@@ -668,6 +684,11 @@ export interface WorkbenchBridge {
   getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
   resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
+  getDailyReviewState(): Promise<DailyReviewScheduleState>;
+  registerDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;
+  unregisterDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;
+  runPendingDailyReview(projectRoot: string, localDate: string): Promise<ReviewResult<null>>;
+  snoozeDailyReview(projectRoot: string, localDate: string): Promise<DailyReviewScheduleState>;
   listSyncTasks(projectRoot?: string | null): Promise<SyncResult<SyncTaskManifest[]>>;
   readSyncTask(projectRoot: string, taskId: string): Promise<SyncResult<SyncTaskRecord | null>>;
   addTaskToSync(taskId: string): Promise<SyncResult<SyncTaskManifest | null>>;
@@ -677,6 +698,7 @@ export interface WorkbenchBridge {
   createGithubRepository(input: { projectRoot: string; name: string; privateRepository?: boolean }): Promise<RepositoryResult<RepositoryStatus | null>>;
   onTaskChanged(handler: (change: TaskChangeEvent) => void): () => void;
   onReviewChanged(handler: (change: ReviewChangeEvent) => void): () => void;
+  onDailyReviewChanged(handler: (state: DailyReviewScheduleState) => void): () => void;
   listProjectAssets(projectRoot?: string | null): Promise<ProjectAssetResult<ProjectAssetIndex | null>>;
   readProjectAsset(projectRoot: string, relativePath: string): Promise<ProjectAssetResult<ProjectAssetDocument | null>>;
   createProjectAssetDraft(input: CreateProjectAssetDraftInput): Promise<ProjectAssetResult<ProjectAssetDraft | null>>;

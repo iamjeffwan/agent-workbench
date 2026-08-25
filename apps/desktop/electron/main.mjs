@@ -23,6 +23,7 @@ import { createProjectAssetsService } from './project-assets.mjs';
 import { createProjectObservationService } from './project-observation-service.mjs';
 import { createReviewObservationService } from './review-observation-service.mjs';
 import { createReviewWorkflowService } from './review-workflow-service.mjs';
+import { createDailyReviewScheduler } from './daily-review-scheduler.mjs';
 import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
@@ -92,6 +93,11 @@ const reviewWorkflow = createReviewWorkflowService({
   },
 });
 reviewWorkflow.onChange(change => publishReviewUpdate(change));
+const dailyReviewScheduler = createDailyReviewScheduler({
+  getUserDataPath: () => app.getPath('userData'),
+  runDaily: (projectRoot, options) => reviewWorkflow.runDaily(projectRoot, options),
+});
+dailyReviewScheduler.onChange(change => publishDailyReviewUpdate(change));
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.agentworkbench.desktop');
@@ -196,6 +202,11 @@ function createWindow() {
 function publishReviewUpdate(change) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('review:changed', change);
+}
+
+function publishDailyReviewUpdate(change) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('daily-review:changed', change);
 }
 
 function refreshState() {
@@ -562,6 +573,7 @@ function activateProject(projectRoot) {
 
 app.whenReady().then(() => {
   createWindow();
+  void dailyReviewScheduler.start();
 
   ipcMain.handle('project:open', () => openProject());
   ipcMain.handle('project:getState', () => state);
@@ -612,6 +624,15 @@ app.whenReady().then(() => {
     reviewWorkflow.resolveEvidence(projectRoot ?? state.projectRoot, caseId, evidenceId));
   ipcMain.handle('review:appendAnnotation', (_event, projectRoot, input) =>
     reviewWorkflow.appendAnnotation(projectRoot ?? state.projectRoot, input));
+  ipcMain.handle('daily-review:getState', () => dailyReviewScheduler.getState());
+  ipcMain.handle('daily-review:register', (_event, projectRoot) =>
+    dailyReviewScheduler.register(projectRoot ?? state.projectRoot));
+  ipcMain.handle('daily-review:unregister', (_event, projectRoot) =>
+    dailyReviewScheduler.unregister(projectRoot ?? state.projectRoot));
+  ipcMain.handle('daily-review:runPending', (_event, projectRoot, localDate) =>
+    dailyReviewScheduler.runPending(projectRoot ?? state.projectRoot, localDate));
+  ipcMain.handle('daily-review:snooze', (_event, projectRoot, localDate) =>
+    dailyReviewScheduler.snooze(projectRoot ?? state.projectRoot, localDate));
   ipcMain.handle('sync:listTasks', (_event, projectRoot) => projectSync.listSyncTasks(projectRoot ?? state.projectRoot));
   ipcMain.handle('sync:readTask', (_event, projectRoot, taskId) => projectSync.readSyncTask(projectRoot ?? state.projectRoot, taskId));
   ipcMain.handle('sync:addTask', (_event, taskId) => projectSync.addTaskToSync(taskId));
@@ -659,5 +680,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  dailyReviewScheduler.stop();
   reviewWorkflow.close();
 });
