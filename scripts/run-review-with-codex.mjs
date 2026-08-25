@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { readCodexCliModelConfig } from '../packages/codex-cli-model/dist/index.js';
+
 import {
   createCodexCliReviewModelAdapter,
   createInMemoryReviewStore,
@@ -10,8 +12,9 @@ import {
 
 const options = parseArgs(process.argv.slice(2).filter(argument => argument !== '--'));
 if (!options.case || !options.evidence) {
-  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--project-root <directory>] [--raw-session-file <session.jsonl>] [--provider <id> --base-url <url> --api-key-env <name>]');
+  throw new Error('Usage: pnpm review:test:codex -- --case <case.json> --evidence <evidence.json> [--model-config <file>] [--project-root <directory>] [--raw-session-file <session.jsonl>]');
 }
+const modelConfig = await readCodexCliModelConfig(path.resolve(options.modelConfig ?? 'config/review-model.json'));
 if (options.serviceTier && !['fast', 'flex'].includes(options.serviceTier)) {
   throw new Error('The service tier must be fast or flex.');
 }
@@ -31,10 +34,11 @@ await store.createCase(reviewCase);
 const adapter = createCodexCliReviewModelAdapter({
   artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
   workingDirectory: process.cwd(),
-  model: options.model ?? 'gpt-5.6-sol',
+  model: options.model ?? modelConfig.model,
+  ...(options.modelVersion ? { modelVersion: options.modelVersion } : modelConfig.modelVersion ? { modelVersion: modelConfig.modelVersion } : {}),
   ...(options.executable ? { executable: path.resolve(options.executable) } : {}),
-  ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
-  ...(customProvider ? { customProvider } : {}),
+  ...(options.serviceTier ? { serviceTier: options.serviceTier } : modelConfig.serviceTier ? { serviceTier: modelConfig.serviceTier } : {}),
+  ...(customProvider ? { customProvider } : modelConfig.provider ? { customProvider: modelConfig.provider } : {}),
 });
 const executor = createReviewExecutor({
   store,

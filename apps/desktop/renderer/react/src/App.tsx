@@ -81,7 +81,7 @@ export function App() {
         />
         {selectedPage === 'settings'
           ? <ModelSettingsPage />
-          : <React.Suspense fallback={null}><PreviewApp page={selectedPage} /></React.Suspense>}
+          : <React.Suspense fallback={null}><PreviewApp page={selectedPage} onNavigate={navigate} /></React.Suspense>}
         {activityVisible && visibleActivities.length > 0 ? <ActivityCenter aria-label="Task activity">
           <button onClick={acknowledgeActivities} aria-label="Dismiss task activity">×</button>
           <h2>Task activity</h2>

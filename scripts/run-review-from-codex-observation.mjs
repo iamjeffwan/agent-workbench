@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { readCodexCliModelConfig } from '../packages/codex-cli-model/dist/index.js';
+
 import {
   openLocalDatabase,
   resolveDefaultDatabasePath,
@@ -22,6 +24,7 @@ import { createProjectObservationService } from '../apps/desktop/electron/projec
 import { createReviewObservationService } from '../apps/desktop/electron/review-observation-service.mjs';
 
 const options = parseArgs(process.argv.slice(2).filter(argument => argument !== '--'));
+const modelConfig = await readCodexCliModelConfig(path.resolve(options.modelConfig ?? 'config/review-model.json'));
 const selection = await resolveSelection(options);
 const projectObservation = createProjectObservationService({
   getUserDataPath: () => path.resolve(options.userData ?? path.join(selection.projectRoot, '.agent-workbench-local')),
@@ -57,10 +60,11 @@ try {
   const adapter = createCodexCliReviewModelAdapter({
     artifactDirectory: path.resolve(options.artifacts ?? '.review-runs'),
     workingDirectory: selection.projectRoot,
-    model: options.model ?? 'gpt-5.6-sol',
+    model: options.model ?? modelConfig.model,
+    ...(options.modelVersion ? { modelVersion: options.modelVersion } : modelConfig.modelVersion ? { modelVersion: modelConfig.modelVersion } : {}),
     ...(options.executable ? { executable: path.resolve(options.executable) } : {}),
-    ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
-    ...(customProvider ? { customProvider } : {}),
+    ...(options.serviceTier ? { serviceTier: options.serviceTier } : modelConfig.serviceTier ? { serviceTier: modelConfig.serviceTier } : {}),
+    ...(customProvider ? { customProvider } : modelConfig.provider ? { customProvider: modelConfig.provider } : {}),
   });
   const executor = createReviewExecutor({
     store,
