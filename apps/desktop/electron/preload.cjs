@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('workbench', {
   getReview: (projectRoot, caseId) => ipcRenderer.invoke('review:get', projectRoot, caseId),
   resolveReviewEvidence: (projectRoot, caseId, evidenceId) => ipcRenderer.invoke('review:resolveEvidence', projectRoot, caseId, evidenceId),
   appendReviewAnnotation: (projectRoot, input) => ipcRenderer.invoke('review:appendAnnotation', projectRoot, input),
+  listTemporaryPrompts: (projectRoot, options) => ipcRenderer.invoke('temporary-prompts:list', projectRoot, options),
+  hideTemporaryPrompt: (projectRoot, promptId) => ipcRenderer.invoke('temporary-prompts:hide', projectRoot, promptId),
   getDailyReviewState: () => ipcRenderer.invoke('daily-review:getState'),
   registerDailyReviewProject: (projectRoot) => ipcRenderer.invoke('daily-review:register', projectRoot),
   unregisterDailyReviewProject: (projectRoot) => ipcRenderer.invoke('daily-review:unregister', projectRoot),

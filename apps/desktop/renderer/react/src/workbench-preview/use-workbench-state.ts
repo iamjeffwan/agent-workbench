@@ -21,6 +21,7 @@ import type {
   ReviewResult,
   ReviewStartInput,
   ReviewSummary,
+  TemporaryPrompt,
   SaveTaskScriptInput,
   SyncResult,
   SyncTaskManifest,
@@ -57,6 +58,8 @@ export interface WorkbenchConnection {
   getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
   resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
+  listTemporaryPrompts(projectRoot?: string | null): Promise<ReviewResult<TemporaryPrompt[]>>;
+  hideTemporaryPrompt(projectRoot: string | null, promptId: string): Promise<ReviewResult<TemporaryPrompt | null>>;
   dailyReviewSchedule: DailyReviewScheduleState | null;
   runPendingDailyReview(projectRoot: string, localDate: string): Promise<ReviewResult<null>>;
   snoozeDailyReview(projectRoot: string, localDate: string): Promise<DailyReviewScheduleState>;
@@ -302,6 +305,18 @@ export function useWorkbenchState(): WorkbenchConnection {
     catch (error) { return failedReview<ReviewRecord | null>(error, null); }
   }, [bridge]);
 
+  const listTemporaryPrompts = React.useCallback(async (projectRoot?: string | null) => {
+    if (!bridge) return unavailableReview<TemporaryPrompt[]>([]);
+    try { return await bridge.listTemporaryPrompts(projectRoot); }
+    catch (error) { return failedReview<TemporaryPrompt[]>(error, []); }
+  }, [bridge]);
+
+  const hideTemporaryPrompt = React.useCallback(async (projectRoot: string | null, promptId: string) => {
+    if (!bridge) return unavailableReview<TemporaryPrompt | null>(null);
+    try { return await bridge.hideTemporaryPrompt(projectRoot, promptId); }
+    catch (error) { return failedReview<TemporaryPrompt | null>(error, null); }
+  }, [bridge]);
+
   const runPendingDailyReview = React.useCallback(async (projectRoot: string, localDate: string) => {
     if (!bridge) return unavailableReview<null>(null);
     try { return await bridge.runPendingDailyReview(projectRoot, localDate); }
@@ -426,6 +441,8 @@ export function useWorkbenchState(): WorkbenchConnection {
     getReview,
     resolveReviewEvidence,
     appendReviewAnnotation,
+    listTemporaryPrompts,
+    hideTemporaryPrompt,
     dailyReviewSchedule,
     runPendingDailyReview,
     snoozeDailyReview,

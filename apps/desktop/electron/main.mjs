@@ -624,6 +624,10 @@ app.whenReady().then(() => {
     reviewWorkflow.resolveEvidence(projectRoot ?? state.projectRoot, caseId, evidenceId));
   ipcMain.handle('review:appendAnnotation', (_event, projectRoot, input) =>
     reviewWorkflow.appendAnnotation(projectRoot ?? state.projectRoot, input));
+  ipcMain.handle('temporary-prompts:list', (_event, projectRoot, options) =>
+    reviewWorkflow.listTemporaryPrompts(projectRoot ?? state.projectRoot, options));
+  ipcMain.handle('temporary-prompts:hide', (_event, projectRoot, promptId) =>
+    reviewWorkflow.hideTemporaryPrompt(projectRoot ?? state.projectRoot, promptId));
   ipcMain.handle('daily-review:getState', () => dailyReviewScheduler.getState());
   ipcMain.handle('daily-review:register', (_event, projectRoot) =>
     dailyReviewScheduler.register(projectRoot ?? state.projectRoot));

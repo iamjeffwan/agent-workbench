@@ -235,12 +235,14 @@ function AnnotationForm({ caseId, judgementId, annotations, onSubmit }: { caseId
   const [verdict, setVerdict] = React.useState<ReviewAnnotationInput['verdict']>('correct');
   const [reason, setReason] = React.useState('');
   const [missingIssue, setMissingIssue] = React.useState('');
+  const [immediateOptimize, setImmediateOptimize] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const latest = annotations.at(-1);
-  return <ReviewForm onSubmit={event => { event.preventDefault(); if (saving) return; setSaving(true); void onSubmit({ caseId, judgementId, verdict, reason: reason.trim() || undefined, ...(missingIssue.trim() ? { missingIssue: missingIssue.trim() } : {}) }).finally(() => { setSaving(false); setReason(''); setMissingIssue(''); }); }}>
+  return <ReviewForm onSubmit={event => { event.preventDefault(); if (saving) return; setSaving(true); void onSubmit({ caseId, judgementId, verdict, reason: reason.trim() || undefined, ...(missingIssue.trim() ? { missingIssue: missingIssue.trim() } : {}), ...(verdict === 'correct' && immediateOptimize ? { immediateOptimize: true } : {}) }).finally(() => { setSaving(false); setReason(''); setMissingIssue(''); setImmediateOptimize(false); }); }}>
     <label>Human review<select value={verdict} onChange={event => setVerdict(event.target.value as ReviewAnnotationInput['verdict'])}><option value="correct">Correct</option><option value="incorrect">Incorrect</option></select></label>
     <label>Reason (optional)<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain the confirmation or rejection" /></label>
     <label>Missing issue (optional)<textarea value={missingIssue} onChange={event => setMissingIssue(event.target.value)} placeholder="Record an issue the review missed" /></label>
+    {verdict === 'correct' ? <label><input type="checkbox" checked={immediateOptimize} onChange={event => setImmediateOptimize(event.target.checked)} /> Generate a temporary prompt now</label> : null}
     {latest ? <small>Latest review: {latest.verdict.replaceAll('_', ' ')} · {formatDate(latest.createdAt)}</small> : <small>No human review has been saved yet.</small>}
     <ActionButton type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save review'}</ActionButton>
   </ReviewForm>;

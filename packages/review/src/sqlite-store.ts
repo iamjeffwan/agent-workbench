@@ -17,6 +17,7 @@ import type {
   ReviewRunArtifact,
   ReviewRunResult,
   ReviewStore,
+  TemporaryPrompt,
 } from './types.js';
 import { assertDailyReviewRecord } from './daily-review.js';
 import { assertReviewCaseRecord } from './validate.js';
@@ -207,6 +208,25 @@ export const REVIEW_DATABASE_MIGRATIONS: readonly LocalDatabaseMigration[] = [{
     'DROP TABLE review_annotations_legacy',
     'CREATE INDEX review_annotations_judgement_created ON review_annotations(judgement_id, created_at)',
   ],
+}, {
+  version: 112,
+  name: 'temporary-prompts-v1',
+  statements: [
+    `CREATE TABLE temporary_prompts (
+      prompt_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      project_name TEXT NOT NULL,
+      case_id TEXT NOT NULL REFERENCES review_cases(case_id) ON DELETE RESTRICT,
+      run_id TEXT NOT NULL REFERENCES review_runs(run_id) ON DELETE RESTRICT,
+      judgement_id TEXT NOT NULL REFERENCES review_judgements(judgement_id) ON DELETE RESTRICT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('visible', 'hidden'))
+    ) STRICT`,
+    'CREATE INDEX temporary_prompts_project_created ON temporary_prompts(project_id, created_at DESC)',
+    'CREATE INDEX temporary_prompts_day ON temporary_prompts(project_id, created_at)',
+  ],
 }];
 
 export function createSqliteReviewStore(options: { database: LocalDatabase }): ReviewStore & DailyReviewStore {
@@ -345,6 +365,42 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
         if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
       }
       return undefined;
+    },
+
+    async createTemporaryPrompt(prompt) {
+      return database.transaction(() => {
+        database.prepare(`INSERT INTO temporary_prompts(
+          prompt_id, project_id, project_name, case_id, run_id, judgement_id, title, content, created_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(prompt.promptId, prompt.projectId, prompt.projectName, prompt.caseId, prompt.runId,
+            prompt.judgementId, prompt.title, prompt.content, prompt.createdAt, prompt.status);
+        return structuredClone(prompt);
+      });
+    },
+
+    async listTemporaryPrompts(options) {
+      const clauses = ['project_id = ?'];
+      const params: string[] = [options.projectId];
+      if (!options.includeHidden) clauses.push("status = 'visible'");
+      if (options.createdOn) { clauses.push('created_at >= ? AND created_at < ?'); params.push(`${options.createdOn}T00:00:00.000Z`, `${options.createdOn}T23:59:59.999Z`); }
+      const rows = database.prepare(`SELECT
+        prompt_id AS promptId, project_id AS projectId, project_name AS projectName,
+        case_id AS caseId, run_id AS runId, judgement_id AS judgementId,
+        title, content, created_at AS createdAt, status
+        FROM temporary_prompts WHERE ${clauses.join(' AND ')}
+        ORDER BY created_at DESC, prompt_id DESC`).all(...params) as TemporaryPrompt[];
+      return rows.map(row => structuredClone(row));
+    },
+
+    async hideTemporaryPrompt(projectId, promptId) {
+      const result = database.prepare(`UPDATE temporary_prompts SET status = 'hidden' WHERE prompt_id = ? AND project_id = ?`).run(promptId, projectId);
+      if (result.changes === 0) throw new Error(`Temporary prompt does not exist: ${promptId}`);
+      const row = database.prepare(`SELECT
+        prompt_id AS promptId, project_id AS projectId, project_name AS projectName,
+        case_id AS caseId, run_id AS runId, judgement_id AS judgementId,
+        title, content, created_at AS createdAt, status
+        FROM temporary_prompts WHERE prompt_id = ?`).get(promptId) as TemporaryPrompt;
+      return structuredClone(row);
     },
 
     async createDailyBatch(batch, chunks) {
