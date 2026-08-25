@@ -107,7 +107,7 @@ const workbenchEntries = [
   ['sources', 'Review', Plugs],
   ['library', 'Library', Pencil],
   ['send', 'Send', PaperPlaneTilt],
-  ['prompts', 'Prompts', ClipboardText],
+  ['prompts', 'Optimize', ClipboardText],
 ] as const;
 const upstreamEntries = [
   ['intercept', 'Intercept', Plugs],

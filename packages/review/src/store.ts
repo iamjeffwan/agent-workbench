@@ -178,6 +178,14 @@ export function createInMemoryReviewStore(): ReviewStore & import('./types.js').
       dailyRecords.set(batchId, clone(next));
       return clone(next);
     },
+
+    async listDailyBatches(options) {
+      const records = [...dailyRecords.values()]
+        .filter(item => item.batch.projectId === options.projectId)
+        .filter(item => !options.status || item.batch.status === options.status)
+        .sort((left, right) => left.batch.localDate.localeCompare(right.batch.localDate));
+      return (options.limit === undefined ? records : records.slice(0, Math.max(0, options.limit))).map(clone);
+    },
   };
 }
 

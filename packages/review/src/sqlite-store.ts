@@ -480,6 +480,18 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
         return structuredClone(next);
       });
     },
+
+    async listDailyBatches(options) {
+      const limit = options.limit === undefined ? null : Math.max(0, options.limit);
+      const rows = options.status
+        ? limit === null
+          ? database.prepare('SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? AND status = ? ORDER BY local_date, batch_id').all(options.projectId, options.status)
+          : database.prepare('SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? AND status = ? ORDER BY local_date, batch_id LIMIT ?').all(options.projectId, options.status, limit)
+        : limit === null
+          ? database.prepare('SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? ORDER BY local_date, batch_id').all(options.projectId)
+          : database.prepare('SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? ORDER BY local_date, batch_id LIMIT ?').all(options.projectId, limit);
+      return (rows as Array<{batchId:string}>).map(row => structuredClone(requiredDailyBatch(database, row.batchId)));
+    },
   };
 }
 

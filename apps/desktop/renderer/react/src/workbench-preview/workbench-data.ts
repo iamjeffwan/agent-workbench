@@ -400,6 +400,24 @@ export interface TemporaryPrompt {
   status: 'visible' | 'hidden';
 }
 
+export interface OptimizationMetrics {
+  judgementCount: number; episodeCount: number; activeDayCount: number; dailyIssueCount: number;
+  evidenceCount: number; turnCount: number; inputTokens: number; outputTokens: number; totalTokens: number;
+  durationMs: number; toolCallCount: number; failedToolCallCount: number; repeatedToolCallCount: number; metricsComplete: boolean;
+}
+export interface OptimizationSignal { key: string; label: string; level: 'none'|'low'|'medium'|'high'; confidence: number; rationale: string; sourceJudgementIds: string[]; occurrenceCount: number; }
+export interface OptimizationIssue {
+  issueId: string; projectId: string; title: string; summary: string; category: string; fingerprints: string[];
+  createdAt: string; updatedAt: string; classificationStatus: 'classified'|'pending_retry'; classificationError?: string;
+  metrics: OptimizationMetrics; highestSeverity: ReviewSeverity; severityCounts: Record<ReviewSeverity, number>;
+  firstSeenAt: string; lastSeenAt: string; signals: OptimizationSignal[];
+}
+export interface OptimizationIssueDetail extends OptimizationIssue { assignments: Array<{
+  dailyIssueId: string; issueId: string; status: 'classified'|'pending_retry'; confidence: number; rationale: string; classificationError?: string; assignedAt: string;
+  source: { localDate: string; title: string; summary: string; severity: ReviewSeverity; fingerprint: string; judgements: Array<{judgementId:string;title:string;summary:string;evidence:Array<{evidenceId:string;description:string;excerpt?:string}>}>; episodes: Array<{episodeKey:string;groupKey:string;localDate:string;metrics:Partial<OptimizationMetrics>}> };
+  signals: Array<Omit<OptimizationSignal, 'occurrenceCount'>>;
+}> }
+
 export interface ReviewEvidenceResolution {
   evidence: ReviewRecord['evidence'][number];
   availability: 'available' | 'changed' | 'unavailable';
@@ -418,7 +436,7 @@ export interface ReviewChangeEvent {
 
 export interface ReviewResult<T> {
   status: 'ready' | 'error';
-  source: 'workbench-review';
+  source: 'workbench-review' | 'workbench-optimization';
   data: T;
   error: string | null;
 }
@@ -700,6 +718,11 @@ export interface WorkbenchBridge {
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
   listTemporaryPrompts(projectRoot?: string | null): Promise<ReviewResult<TemporaryPrompt[]>>;
   hideTemporaryPrompt(projectRoot: string | null, promptId: string): Promise<ReviewResult<TemporaryPrompt | null>>;
+  listOptimizationIssues(projectRoot?: string | null): Promise<ReviewResult<OptimizationIssue[]>>;
+  getOptimizationIssue(projectRoot: string | null, issueId: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
+  retryOptimizationIssues(projectRoot?: string | null): Promise<ReviewResult<{processed:number} | null>>;
+  reassignOptimizationDailyIssue(projectRoot: string | null, dailyIssueId: string, targetIssueId?: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
+  mergeOptimizationIssues(projectRoot: string | null, sourceIssueId: string, targetIssueId: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
   getDailyReviewState(): Promise<DailyReviewScheduleState>;
   registerDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;
   unregisterDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@agent-workbench/codex-adapter": "workspace:*",
+    "@agent-workbench/optimization": "workspace:*",
     "@agent-workbench/project-observation": "workspace:*",
     "@agent-workbench/review": "workspace:*",
     "@agent-workbench/timeline": "workspace:*",

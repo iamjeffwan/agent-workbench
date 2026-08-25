@@ -3,7 +3,7 @@ import { styled, GlobalStyles, lightTheme, ThemeProvider } from './upstream/them
 import { Sidebar, type SidebarPage } from './upstream/Sidebar';
 import { ModelSettingsPage } from './workbench-preview/ModelSettingsPage';
 import { useWorkbenchState } from './workbench-preview/use-workbench-state';
-import { TemporaryPromptsPage } from './workbench-preview/TemporaryPromptsPage';
+import { OptimizationPage } from './workbench-preview/OptimizationPage';
 
 const PreviewApp = React.lazy(() => import('./workbench-preview/PreviewApp').then(module => ({
   default: module.PreviewApp,
@@ -84,7 +84,7 @@ export function App() {
         {selectedPage === 'settings'
           ? <ModelSettingsPage />
           : selectedPage === 'prompts'
-            ? <TemporaryPromptsPage projectRoot={connection.state?.projectRoot ?? null} listPrompts={connection.listTemporaryPrompts} hidePrompt={connection.hideTemporaryPrompt} />
+            ? <OptimizationPage projectRoot={connection.state?.projectRoot ?? null} listPrompts={connection.listTemporaryPrompts} hidePrompt={connection.hideTemporaryPrompt} listIssues={connection.listOptimizationIssues} getIssue={connection.getOptimizationIssue} retry={connection.retryOptimizationIssues} reassign={connection.reassignOptimizationDailyIssue} merge={connection.mergeOptimizationIssues} />
           : <React.Suspense fallback={null}><PreviewApp page={selectedPage} onNavigate={navigate} /></React.Suspense>}
         {activityVisible && visibleActivities.length > 0 ? <ActivityCenter aria-label="Task activity">
           <button onClick={acknowledgeActivities} aria-label="Dismiss task activity">×</button>
