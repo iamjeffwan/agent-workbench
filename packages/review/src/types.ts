@@ -136,10 +136,83 @@ export type ReviewRunResult = {
   evidence: Evidence[];
 };
 
+export type DailyReviewBatchStatus = 'queued' | 'running' | 'partial' | 'completed' | 'failed';
+export type DailyReviewChunkStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type DailyReviewSynthesisStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export type DailyReviewSynthesis = {
+  status: DailyReviewSynthesisStatus;
+  invocation?: ModelInvocation;
+  startedAt?: string;
+  completedAt?: string;
+  usage?: ModelUsage;
+  actualCost?: number;
+  latencyMs?: number;
+  failureReason?: string;
+  artifacts?: ReviewRunArtifact[];
+};
+
+export type DailyReviewBatch = {
+  batchId: string;
+  projectId: string;
+  localDate: string;
+  timeZone: string;
+  status: DailyReviewBatchStatus;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  synthesis: DailyReviewSynthesis;
+};
+
+export type DailyReviewChunk = {
+  chunkId: string;
+  batchId: string;
+  sequence: number;
+  groupKey: string;
+  turns: ReviewTurnRef[];
+  characterCount: number;
+  status: DailyReviewChunkStatus;
+  reviewCaseId?: string;
+  reusedRunId?: string;
+  startedAt?: string;
+  completedAt?: string;
+  failureReason?: string;
+};
+
+export type DailyIssue = {
+  issueId: string;
+  batchId: string;
+  issueFingerprint: string;
+  category: ReviewCategory;
+  title: string;
+  summary: string;
+  severity: ReviewSeverity;
+  impact: string;
+  recommendation: string;
+  sourceJudgementIds: string[];
+  createdAt: string;
+};
+
+export type DailyReviewRecord = {
+  batch: DailyReviewBatch;
+  chunks: DailyReviewChunk[];
+  issues: DailyIssue[];
+};
+
 export type ReviewStore = {
   createCase(reviewCase: ReviewCase): Promise<ReviewCaseRecord>;
   recordRun(result: ReviewRunResult): Promise<ReviewCaseRecord>;
   appendAnnotation(annotation: HumanAnnotation): Promise<ReviewCaseRecord>;
   getCase(caseId: string): Promise<ReviewCaseRecord | undefined>;
   listCases(options?: { projectId?: string; limit?: number }): Promise<ReviewCase[]>;
+};
+
+export type DailyReviewStore = {
+  createDailyBatch(batch: DailyReviewBatch, chunks: DailyReviewChunk[]): Promise<DailyReviewRecord>;
+  findDailyBatch(projectId: string, localDate: string): Promise<DailyReviewRecord | undefined>;
+  getDailyBatch(batchId: string): Promise<DailyReviewRecord | undefined>;
+  appendDailyChunks(batchId: string, chunks: DailyReviewChunk[]): Promise<DailyReviewRecord>;
+  updateDailyBatch(batch: DailyReviewBatch): Promise<DailyReviewRecord>;
+  updateDailyChunk(chunk: DailyReviewChunk): Promise<DailyReviewRecord>;
+  replaceDailyIssues(batchId: string, issues: DailyIssue[]): Promise<DailyReviewRecord>;
 };

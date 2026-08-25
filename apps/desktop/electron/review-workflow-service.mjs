@@ -11,6 +11,7 @@ import {
   openElectronReviewDatabase,
   resolveDefaultReviewDatabasePath,
 } from './local-review-database.mjs';
+import { createDailyReviewService } from './daily-review-service.mjs';
 
 const SOURCE = 'workbench-review';
 const REVIEW_MODEL = 'gpt-5.6-sol';
@@ -30,6 +31,8 @@ export function createReviewWorkflowService({
   createStore = createSqliteReviewStore,
   createAdapter = createCodexCliReviewModelAdapter,
   createExecutor = createReviewExecutor,
+  dailySessionHistory = null,
+  dailyTaskLibrary = null,
   readFile = fs.readFile,
   now = () => new Date(),
   createId = () => randomUUID(),
@@ -52,6 +55,19 @@ export function createReviewWorkflowService({
   const activeCases = new Set();
   /** @type {Set<(change: Record<string, unknown>) => void>} */
   const listeners = new Set();
+  const dailyReview = dailySessionHistory && dailyTaskLibrary
+    ? createDailyReviewService({
+        getStore: async () => (await readyStore()).store,
+        getUserDataPath,
+        projectObservation,
+        sessionHistory: dailySessionHistory,
+        taskLibrary: dailyTaskLibrary,
+        createAdapter,
+        createExecutor,
+        now,
+        createId,
+      })
+    : null;
 
   return {
     async start(input) {
@@ -155,6 +171,11 @@ export function createReviewWorkflowService({
       } catch (error) {
         return failed(null, errorMessage(error, 'Unable to save the human review.'));
       }
+    },
+
+    async runDaily(projectRoot, options = {}) {
+      if (!dailyReview) return failed(null, 'Daily review is not configured.');
+      return dailyReview.run(projectRoot, options);
     },
 
     onChange(listener) {

@@ -114,7 +114,7 @@ function collectObservationTurns(observationSession) {
       sessionId,
       turnId,
       cwd,
-      terminal: turn.status === 'completed' || turn.status === 'aborted',
+      terminal: turn.status === 'completed' || turn.status === 'failed' || turn.status === 'aborted',
     }];
   });
 }

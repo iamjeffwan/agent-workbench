@@ -181,6 +181,21 @@ test('observes the same project facts from a canonical ObservationSession', () =
   assert.equal(turn.facts.turnDiff.resultRef, 'tree-1');
 });
 
+test('treats a failed canonical turn as terminal for project observation', () => {
+  const fixture = createFixture();
+  let captures = 0;
+  const service = createService(fixture, {
+    captureState(context) {
+      return fakeCapture(context, `tree-${captures++}`);
+    },
+  });
+
+  service.observeSession(fixture.projectRoot, observationSession(fixture.projectRoot, 'in_progress'));
+  const completed = service.observeSession(fixture.projectRoot, observationSession(fixture.projectRoot, 'failed'));
+
+  assert.equal(completed.data.completed, 1);
+});
+
 test('reports an invalid canonical ObservationSession without throwing', () => {
   const fixture = createFixture();
   const result = createService(fixture).observeSession(fixture.projectRoot, { turns: [] });

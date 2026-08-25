@@ -358,9 +358,13 @@ export function adaptCodexSession(
       continue;
     }
     if (sourceType === 'event_msg' && payloadType === 'task_complete') {
-      const event = appendEvent(record, 'lifecycle', { subtype: 'turn_completed', status: 'completed' });
+      const failed = payload?.error != null;
+      const event = appendEvent(record, 'lifecycle', {
+        subtype: failed ? 'turn_failed' : 'turn_completed',
+        status: failed ? 'failed' : 'completed',
+      });
       const turn = ensureMutableTurn(turns, event.turnId);
-      turn.status = 'completed';
+      turn.status = failed ? 'failed' : 'completed';
       turn.endedAt = timestamp ?? turn.endedAt;
       const durationMs = numberValue(payload?.duration_ms);
       if (durationMs !== undefined) turn.durationMs = durationMs;

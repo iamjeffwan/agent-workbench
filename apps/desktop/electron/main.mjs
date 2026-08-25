@@ -81,6 +81,15 @@ const reviewWorkflow = createReviewWorkflowService({
   reviewObservation,
   projectObservation,
   getUserDataPath: () => app.getPath('userData'),
+  dailySessionHistory: {
+    listSessions: projectRoot => sessionHistory.listSessions(projectRoot),
+    readSession: (projectRoot, sessionId) => sessionHistory.readSession(projectRoot, sessionId),
+    resolveSessionFiles: (projectRoot, sessionIds) =>
+      sessionHistory.resolveTrackedSessionFiles(projectRoot, sessionIds),
+  },
+  dailyTaskLibrary: {
+    listTasks: projectRoot => taskLibrary.listTasks(projectRoot),
+  },
 });
 reviewWorkflow.onChange(change => publishReviewUpdate(change));
 

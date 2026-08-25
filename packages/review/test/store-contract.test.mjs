@@ -82,6 +82,44 @@ test('SQLite review records survive process-style close and reopen', async () =>
   secondDatabase.close();
 });
 
+for (const adapter of adapters) {
+  test(`${adapter.name} persists daily batches, chunks, issues, and source judgements`, async () => {
+    const context = adapter.create();
+    try {
+      await context.store.createCase(reviewCase('daily-case'));
+      await context.store.recordRun(completedResult('daily-case'));
+      const batch = dailyBatch();
+      const chunk = dailyChunk();
+      await context.store.createDailyBatch(batch, [chunk]);
+      await context.store.updateDailyChunk({
+        ...chunk,
+        status: 'completed',
+        reviewCaseId: 'daily-case',
+        completedAt: '2026-08-25T10:01:00.000Z',
+      });
+      await context.store.updateDailyBatch({
+        ...batch,
+        status: 'completed',
+        updatedAt: '2026-08-25T10:02:00.000Z',
+        completedAt: '2026-08-25T10:02:00.000Z',
+        synthesis: { status: 'completed', completedAt: '2026-08-25T10:02:00.000Z' },
+      });
+      const saved = await context.store.replaceDailyIssues('daily-batch-1', [{
+        issueId: 'daily-issue-1', batchId: 'daily-batch-1', issueFingerprint: 'testability:failure-path',
+        category: 'testability', title: 'Missing failure test', summary: 'The failure path is not covered.',
+        severity: 'medium', impact: 'Regression risk.', recommendation: 'Add a focused test.',
+        sourceJudgementIds: ['judgement-daily-case'], createdAt: '2026-08-25T10:02:00.000Z',
+      }]);
+      assert.equal(saved.batch.status, 'completed');
+      assert.equal(saved.chunks[0].reviewCaseId, 'daily-case');
+      assert.deepEqual(saved.issues[0].sourceJudgementIds, ['judgement-daily-case']);
+      assert.equal((await context.store.findDailyBatch('project-1', '2026-08-25')).batch.batchId, 'daily-batch-1');
+    } finally {
+      context.close();
+    }
+  });
+}
+
 function reviewCase(caseId) {
   return {
     caseId,
@@ -165,5 +203,20 @@ function annotation() {
     verdict: 'correct',
     reason: 'Confirmed from the evidence.',
     createdAt: '2026-08-21T04:02:00.000Z',
+  };
+}
+
+function dailyBatch() {
+  return {
+    batchId: 'daily-batch-1', projectId: 'project-1', localDate: '2026-08-25', timeZone: 'Asia/Shanghai',
+    status: 'queued', createdAt: '2026-08-25T10:00:00.000Z', updatedAt: '2026-08-25T10:00:00.000Z',
+    synthesis: { status: 'queued' },
+  };
+}
+
+function dailyChunk() {
+  return {
+    chunkId: 'daily-chunk-1', batchId: 'daily-batch-1', sequence: 0, groupKey: 'session:session-1',
+    turns: [{ sessionId: 'session-1', turnId: 'turn-1' }], characterCount: 42, status: 'queued',
   };
 }

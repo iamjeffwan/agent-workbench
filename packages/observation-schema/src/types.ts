@@ -75,7 +75,7 @@ export type ObservationTurn = {
   fieldProvenance?: Record<string, Provenance>;
   startedAt?: string;
   endedAt?: string;
-  status?: 'completed' | 'aborted' | 'in_progress';
+  status?: 'completed' | 'failed' | 'aborted' | 'in_progress';
   model?: string;
   cwd?: string;
   durationMs?: number;
