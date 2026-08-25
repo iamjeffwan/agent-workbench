@@ -384,6 +384,20 @@ export interface ReviewAnnotationInput {
   verdict: ReviewAnnotationVerdict;
   reason?: string;
   missingIssue?: string;
+  immediateOptimize?: boolean;
+}
+
+export interface TemporaryPrompt {
+  promptId: string;
+  projectId: string;
+  projectName: string;
+  caseId: string;
+  runId: string;
+  judgementId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  status: 'visible' | 'hidden';
 }
 
 export interface ReviewEvidenceResolution {
@@ -684,6 +698,8 @@ export interface WorkbenchBridge {
   getReview(projectRoot: string | null, caseId: string): Promise<ReviewResult<ReviewRecord | null>>;
   resolveReviewEvidence(projectRoot: string | null, caseId: string, evidenceId: string): Promise<ReviewResult<ReviewEvidenceResolution | null>>;
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
+  listTemporaryPrompts(projectRoot?: string | null): Promise<ReviewResult<TemporaryPrompt[]>>;
+  hideTemporaryPrompt(projectRoot: string | null, promptId: string): Promise<ReviewResult<TemporaryPrompt | null>>;
   getDailyReviewState(): Promise<DailyReviewScheduleState>;
   registerDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;
   unregisterDailyReviewProject(projectRoot?: string | null): Promise<DailyReviewScheduleState>;

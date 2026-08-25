@@ -110,6 +110,19 @@ export type HumanAnnotation = {
   createdAt: string;
 };
 
+export type TemporaryPrompt = {
+  promptId: string;
+  projectId: string;
+  projectName: string;
+  caseId: string;
+  runId: string;
+  judgementId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  status: 'visible' | 'hidden';
+};
+
 export type ReviewCaseRecord = {
   schemaVersion: '1.0-draft';
   reviewCase: ReviewCase;
@@ -204,6 +217,9 @@ export type ReviewStore = {
   getCase(caseId: string): Promise<ReviewCaseRecord | undefined>;
   listCases(options?: { projectId?: string; limit?: number }): Promise<ReviewCase[]>;
   findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined>;
+  createTemporaryPrompt(prompt: TemporaryPrompt): Promise<TemporaryPrompt>;
+  listTemporaryPrompts(options: { projectId: string; includeHidden?: boolean; createdOn?: string }): Promise<TemporaryPrompt[]>;
+  hideTemporaryPrompt(projectId: string, promptId: string): Promise<TemporaryPrompt>;
 };
 
 export type ReusableReviewRunQuery = {

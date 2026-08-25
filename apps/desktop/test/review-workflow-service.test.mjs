@@ -40,10 +40,16 @@ test('starts a review, publishes progress, resolves evidence and appends human r
   assert.equal(evidence.data.location.kind, 'activity');
 
   const annotated = await workflow.appendAnnotation('C:\\project', {
-    caseId: 'case-1', judgementId: 'judgement-1', verdict: 'correct', reason: 'Verified in the activity record.',
+    caseId: 'case-1', judgementId: 'judgement-1', verdict: 'correct', reason: 'Verified in the activity record.', immediateOptimize: true,
   });
   assert.equal(annotated.status, 'ready');
   assert.equal(annotated.data.annotations.length, 1);
+  const prompts = await workflow.listTemporaryPrompts('C:\\project');
+  assert.equal(prompts.status, 'ready');
+  assert.equal(prompts.data.length, 1);
+  assert.match(prompts.data[0].content, /Add coverage/);
+  await workflow.hideTemporaryPrompt('C:\\project', prompts.data[0].promptId);
+  assert.equal((await workflow.listTemporaryPrompts('C:\\project')).data.length, 0);
   assert.deepEqual(changes.map(change => change.state), ['created', 'running', 'completed', 'annotated']);
 });
 
@@ -96,6 +102,9 @@ function memoryStore() {
       record.annotations.push(annotation);
       return structuredClone(record);
     },
+    async createTemporaryPrompt(prompt) { this.prompts ??= new Map(); this.prompts.set(prompt.promptId, structuredClone(prompt)); return structuredClone(prompt); },
+    async listTemporaryPrompts({ projectId, includeHidden = false } = {}) { return [...(this.prompts?.values() ?? [])].filter(item => item.projectId === projectId && (includeHidden || item.status === 'visible')); },
+    async hideTemporaryPrompt(projectId, promptId) { const prompt = this.prompts.get(promptId); prompt.status = 'hidden'; return structuredClone(prompt); },
     async getCase(caseId) { return structuredClone(records.get(caseId)); },
     async listCases({ projectId } = {}) {
       return [...records.values()].map(record => record.reviewCase).filter(item => !projectId || item.projectId === projectId);

@@ -3,6 +3,7 @@ import { styled, GlobalStyles, lightTheme, ThemeProvider } from './upstream/them
 import { Sidebar, type SidebarPage } from './upstream/Sidebar';
 import { ModelSettingsPage } from './workbench-preview/ModelSettingsPage';
 import { useWorkbenchState } from './workbench-preview/use-workbench-state';
+import { TemporaryPromptsPage } from './workbench-preview/TemporaryPromptsPage';
 
 const PreviewApp = React.lazy(() => import('./workbench-preview/PreviewApp').then(module => ({
   default: module.PreviewApp,
@@ -82,6 +83,8 @@ export function App() {
         />
         {selectedPage === 'settings'
           ? <ModelSettingsPage />
+          : selectedPage === 'prompts'
+            ? <TemporaryPromptsPage projectRoot={connection.state?.projectRoot ?? null} listPrompts={connection.listTemporaryPrompts} hidePrompt={connection.hideTemporaryPrompt} />
           : <React.Suspense fallback={null}><PreviewApp page={selectedPage} onNavigate={navigate} /></React.Suspense>}
         {activityVisible && visibleActivities.length > 0 ? <ActivityCenter aria-label="Task activity">
           <button onClick={acknowledgeActivities} aria-label="Dismiss task activity">×</button>

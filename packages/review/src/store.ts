@@ -7,6 +7,7 @@ import type {
   ReviewCaseRecord,
   ReviewRunResult,
   ReviewStore,
+  TemporaryPrompt,
 } from './types.js';
 import { assertDailyReviewRecord } from './daily-review.js';
 import { assertReviewCaseRecord } from './validate.js';
@@ -14,6 +15,7 @@ import { assertReviewCaseRecord } from './validate.js';
 export function createInMemoryReviewStore(): ReviewStore & import('./types.js').DailyReviewStore {
   const records = new Map<string, ReviewCaseRecord>();
   const dailyRecords = new Map<string, DailyReviewRecord>();
+  const temporaryPrompts = new Map<string, TemporaryPrompt>();
 
   return {
     async createCase(reviewCase) {
@@ -90,6 +92,30 @@ export function createInMemoryReviewStore(): ReviewStore & import('./types.js').
         if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
       }
       return undefined;
+    },
+
+    async createTemporaryPrompt(prompt) {
+      if (temporaryPrompts.has(prompt.promptId)) throw new Error(`Temporary prompt already exists: ${prompt.promptId}`);
+      const next = clone(prompt);
+      temporaryPrompts.set(prompt.promptId, next);
+      return clone(next);
+    },
+
+    async listTemporaryPrompts(options) {
+      return [...temporaryPrompts.values()]
+        .filter(item => item.projectId === options.projectId)
+        .filter(item => options.includeHidden || item.status === 'visible')
+        .filter(item => !options.createdOn || item.createdAt.startsWith(options.createdOn))
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.promptId.localeCompare(left.promptId))
+        .map(clone);
+    },
+
+    async hideTemporaryPrompt(projectId, promptId) {
+      const existing = temporaryPrompts.get(promptId);
+      if (!existing || existing.projectId !== projectId) throw new Error(`Temporary prompt does not exist: ${promptId}`);
+      const next = { ...existing, status: 'hidden' as const };
+      temporaryPrompts.set(promptId, next);
+      return clone(next);
     },
 
     async createDailyBatch(batch, chunks) {

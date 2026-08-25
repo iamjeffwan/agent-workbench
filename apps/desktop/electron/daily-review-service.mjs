@@ -141,7 +141,7 @@ export function createDailyReviewService({
       return ready(record);
     }
 
-    record = await synthesize({ store, record, projectRoot, projectId });
+    record = await synthesize({ store, record, projectRoot, projectId, zone });
     return ready(record);
   }
 
@@ -320,8 +320,10 @@ export function createDailyReviewService({
     return ready({ evidencePackage: enriched, sessionFiles });
   }
 
-  async function synthesize({ store, record, projectRoot, projectId }) {
+  async function synthesize({ store, record, projectRoot, projectId, zone }) {
     const judgements = await chunkJudgements(store, record.chunks);
+    const temporaryPrompts = (await store.listTemporaryPrompts({ projectId, includeHidden: true }))
+      .filter(prompt => localDateFromTimestamp(prompt.createdAt, zone) === record.batch.localDate);
     const startedAt = now();
     const adapter = createAdapter({
       artifactDirectory: path.join(getUserDataPath(), 'review-runs'),
@@ -363,9 +365,10 @@ export function createDailyReviewService({
             batchId: record.batch.batchId,
             localDate: record.batch.localDate,
             judgements,
+            temporaryPrompts,
           },
         },
-        systemPrompt: 'You are an evidence-bound daily review synthesizer. Use only the supplied chunk judgements. Merge duplicate findings when they have the same root cause. Each issue must reference one or more supplied judgement IDs. Do not invent evidence, facts, or source IDs. issueFingerprint must start with the issue category and use lowercase colon-separated stable segments. Return only the requested structured output.',
+        systemPrompt: 'You are an evidence-bound daily review synthesizer. Use only the supplied chunk judgements and temporary prompts as reference material. Merge duplicate findings when they have the same root cause. Each issue must reference one or more supplied judgement IDs. Do not invent evidence, facts, or source IDs. Temporary prompts are guidance records only and must not be treated as findings or source judgement IDs. issueFingerprint must start with the issue category and use lowercase colon-separated stable segments. Return only the requested structured output.',
         outputSchema: DAILY_SYNTHESIS_OUTPUT_SCHEMA,
       });
       const output = assertDailySynthesisOutput(response.output, judgements);

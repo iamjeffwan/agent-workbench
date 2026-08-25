@@ -98,6 +98,7 @@ export type {
   ReviewSourceType,
   ReviewStore,
   ReviewTurnRef,
+  TemporaryPrompt,
   ReusableReviewRun,
   ReusableReviewRunQuery,
   Reviewability,

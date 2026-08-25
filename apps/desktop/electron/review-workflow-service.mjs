@@ -163,6 +163,7 @@ export function createReviewWorkflowService({
         return failed(null, 'The selected judgement does not belong to this review.');
       }
       try {
+        const judgement = owned.data.judgements.find(item => item.judgementId === judgementId);
         const record = await dependencies.store.appendAnnotation({
           annotationId: `annotation_${createId()}`,
           judgementId,
@@ -172,10 +173,54 @@ export function createReviewWorkflowService({
           ...(cleanString(input?.missingIssue) ? { missingIssue: cleanString(input.missingIssue) } : {}),
           createdAt: now().toISOString(),
         });
+        if (input?.immediateOptimize === true && verdict === 'correct' && judgement) {
+          const run = record.runs.find(item => item.runId === judgement.runId);
+          await dependencies.store.createTemporaryPrompt({
+            promptId: `temporary_prompt_${createId()}`,
+            projectId: record.reviewCase.projectId,
+            projectName: path.basename(path.resolve(projectRoot)),
+            caseId,
+            runId: judgement.runId,
+            judgementId,
+            title: judgement.title,
+            content: buildTemporaryPrompt({
+              projectName: path.basename(path.resolve(projectRoot)),
+              summary: judgement.summary,
+              recommendation: judgement.recommendation,
+            }),
+            createdAt: now().toISOString(),
+            status: 'visible',
+          });
+        }
         publish({ caseId, projectId: record.reviewCase.projectId, state: 'annotated' });
         return ready(record);
       } catch (error) {
         return failed(null, errorMessage(error, 'Unable to save the human review.'));
+      }
+    },
+
+    async listTemporaryPrompts(projectRoot, options = {}) {
+      const dependencies = await readyStore();
+      const project = projectFor(projectRoot);
+      if (project.status !== 'ready') return failed([], project.error);
+      try {
+        return ready(await dependencies.store.listTemporaryPrompts({
+          projectId: project.data.projectId,
+          ...(options.includeHidden ? { includeHidden: true } : {}),
+        }));
+      } catch (error) {
+        return failed([], errorMessage(error, 'Unable to list temporary prompts.'));
+      }
+    },
+
+    async hideTemporaryPrompt(projectRoot, promptId) {
+      const dependencies = await readyStore();
+      const project = projectFor(projectRoot);
+      if (project.status !== 'ready') return failed(null, project.error);
+      try {
+        return ready(await dependencies.store.hideTemporaryPrompt(project.data.projectId, cleanString(promptId)));
+      } catch (error) {
+        return failed(null, errorMessage(error, 'Unable to hide temporary prompt.'));
       }
     },
 
@@ -293,6 +338,18 @@ export function createReviewWorkflowService({
   function publish(change) {
     for (const listener of listeners) listener(structuredClone(change));
   }
+}
+
+function buildTemporaryPrompt({ projectName, summary, recommendation }) {
+  return [
+    `在项目“${projectName}”中，请注意以下问题：`,
+    summary,
+    '',
+    '执行建议：',
+    recommendation,
+    '',
+    '请在后续工作中主动检查并避免再次出现这个问题。',
+  ].join('\n');
 }
 
 async function recoverInterruptedRuns(store) {

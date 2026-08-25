@@ -44,6 +44,17 @@ for (const adapter of adapters) {
       assert.equal(record.evidence.length, 1);
       assert.equal(record.annotations.length, 1);
       assert.equal(record.runs[0].artifacts[0].kind, 'model_output');
+      await context.store.createTemporaryPrompt({
+        promptId: 'prompt-1', projectId: 'project-1', projectName: 'Workbench',
+        caseId: 'case-1', runId: 'run-case-1', judgementId: 'judgement-case-1',
+        title: 'Missing failure-path test', content: 'Please add a focused test.',
+        createdAt: '2026-08-25T10:00:00.000Z', status: 'visible',
+      });
+      assert.equal((await context.store.listTemporaryPrompts({ projectId: 'project-1' })).length, 1);
+      assert.equal((await context.store.listTemporaryPrompts({ projectId: 'project-1', createdOn: '2026-08-25', includeHidden: true })).length, 1);
+      await context.store.hideTemporaryPrompt('project-1', 'prompt-1');
+      assert.equal((await context.store.listTemporaryPrompts({ projectId: 'project-1' })).length, 0);
+      assert.equal((await context.store.listTemporaryPrompts({ projectId: 'project-1', includeHidden: true }))[0].status, 'hidden');
     } finally {
       context.close();
     }

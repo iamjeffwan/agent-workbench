@@ -8,6 +8,7 @@ import {
   Pencil,
   Plugs,
   Sparkle,
+  ClipboardText,
 } from '@phosphor-icons/react';
 import { styled, css } from './theme';
 import logo from './logo-icon.svg';
@@ -106,6 +107,7 @@ const workbenchEntries = [
   ['sources', 'Review', Plugs],
   ['library', 'Library', Pencil],
   ['send', 'Send', PaperPlaneTilt],
+  ['prompts', 'Prompts', ClipboardText],
 ] as const;
 const upstreamEntries = [
   ['intercept', 'Intercept', Plugs],
@@ -114,7 +116,7 @@ const upstreamEntries = [
   ['send', 'Send', PaperPlaneTilt],
 ] as const;
 
-export type SidebarPage = 'view' | 'sources' | 'library' | 'settings';
+export type SidebarPage = 'view' | 'sources' | 'library' | 'prompts' | 'settings';
 
 export function Sidebar({
   showSelection = true,
@@ -140,7 +142,7 @@ export function Sidebar({
           $selectionSide={workbenchMode ? 'left' : 'right'}
           type="button"
           title={name}
-          onClick={id === 'view' || id === 'sources' || id === 'library' ? () => onNavigate?.(id) : undefined}
+          onClick={id === 'view' || id === 'sources' || id === 'library' || id === 'prompts' ? () => onNavigate?.(id) : undefined}
           style={{ position: 'relative' }}
         >
           <Icon className="phosphor-icon" size={34} />
