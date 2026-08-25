@@ -24,6 +24,7 @@ import { createProjectObservationService } from './project-observation-service.m
 import { createReviewObservationService } from './review-observation-service.mjs';
 import { createReviewWorkflowService } from './review-workflow-service.mjs';
 import { createDailyReviewScheduler } from './daily-review-scheduler.mjs';
+import { createOptimizationWorkflowService } from './optimization-workflow-service.mjs';
 import { createProjectSyncService } from './project-sync.mjs';
 import { createTaskLibraryService } from './task-library.mjs';
 
@@ -93,9 +94,23 @@ const reviewWorkflow = createReviewWorkflowService({
   },
 });
 reviewWorkflow.onChange(change => publishReviewUpdate(change));
+const optimizationWorkflow = createOptimizationWorkflowService({
+  reviewWorkflow,
+  projectObservation,
+  sessionHistory: {
+    resolveSessionFiles: (projectRoot, sessionIds) => sessionHistory.resolveTrackedSessionFiles(projectRoot, sessionIds),
+  },
+  getUserDataPath: () => app.getPath('userData'),
+});
 const dailyReviewScheduler = createDailyReviewScheduler({
   getUserDataPath: () => app.getPath('userData'),
-  runDaily: (projectRoot, options) => reviewWorkflow.runDaily(projectRoot, options),
+  runDaily: async (projectRoot, options) => {
+    const result = await reviewWorkflow.runDaily(projectRoot, options);
+    if (result?.status === 'ready' && result.data?.batch?.status === 'completed') {
+      void optimizationWorkflow.processProject(projectRoot);
+    }
+    return result;
+  },
 });
 dailyReviewScheduler.onChange(change => publishDailyReviewUpdate(change));
 
@@ -573,7 +588,9 @@ function activateProject(projectRoot) {
 
 app.whenReady().then(() => {
   createWindow();
-  void dailyReviewScheduler.start();
+  void dailyReviewScheduler.start().then(schedule => {
+    schedule.projects.forEach(project => { void optimizationWorkflow.processProject(project.projectRoot); });
+  });
 
   ipcMain.handle('project:open', () => openProject());
   ipcMain.handle('project:getState', () => state);
@@ -628,9 +645,18 @@ app.whenReady().then(() => {
     reviewWorkflow.listTemporaryPrompts(projectRoot ?? state.projectRoot, options));
   ipcMain.handle('temporary-prompts:hide', (_event, projectRoot, promptId) =>
     reviewWorkflow.hideTemporaryPrompt(projectRoot ?? state.projectRoot, promptId));
+  ipcMain.handle('optimization:list', (_event, projectRoot) => optimizationWorkflow.list(projectRoot ?? state.projectRoot));
+  ipcMain.handle('optimization:get', (_event, projectRoot, issueId) => optimizationWorkflow.get(projectRoot ?? state.projectRoot, issueId));
+  ipcMain.handle('optimization:retry', (_event, projectRoot) => optimizationWorkflow.retry(projectRoot ?? state.projectRoot));
+  ipcMain.handle('optimization:reassign', (_event, projectRoot, dailyIssueId, targetIssueId) => optimizationWorkflow.reassign(projectRoot ?? state.projectRoot, dailyIssueId, targetIssueId));
+  ipcMain.handle('optimization:merge', (_event, projectRoot, sourceIssueId, targetIssueId) => optimizationWorkflow.merge(projectRoot ?? state.projectRoot, sourceIssueId, targetIssueId));
   ipcMain.handle('daily-review:getState', () => dailyReviewScheduler.getState());
-  ipcMain.handle('daily-review:register', (_event, projectRoot) =>
-    dailyReviewScheduler.register(projectRoot ?? state.projectRoot));
+  ipcMain.handle('daily-review:register', async (_event, projectRoot) => {
+    const root = projectRoot ?? state.projectRoot;
+    const result = await dailyReviewScheduler.register(root);
+    if (root) void optimizationWorkflow.processProject(root);
+    return result;
+  });
   ipcMain.handle('daily-review:unregister', (_event, projectRoot) =>
     dailyReviewScheduler.unregister(projectRoot ?? state.projectRoot));
   ipcMain.handle('daily-review:runPending', (_event, projectRoot, localDate) =>
@@ -686,4 +712,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   dailyReviewScheduler.stop();
   reviewWorkflow.close();
+  optimizationWorkflow.close();
 });

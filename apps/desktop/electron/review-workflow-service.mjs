@@ -229,6 +229,23 @@ export function createReviewWorkflowService({
       return enqueue(() => dailyReview.run(projectRoot, options));
     },
 
+    async listCompletedDailyReviews(projectRoot) {
+      const dependencies = await readyStore();
+      const project = projectFor(projectRoot);
+      if (project.status !== 'ready') return failed([], project.error);
+      try {
+        const records = await dependencies.store.listDailyBatches({ projectId: project.data.projectId, status: 'completed' });
+        const cases = new Map();
+        for (const caseId of new Set(records.flatMap(record => record.chunks.map(chunk => chunk.reviewCaseId).filter(Boolean)))) {
+          const record = await dependencies.store.getCase(caseId);
+          if (record) cases.set(caseId, record);
+        }
+        return ready({ records, cases: Object.fromEntries(cases) });
+      } catch (error) {
+        return failed([], errorMessage(error, 'Unable to list completed daily reviews.'));
+      }
+    },
+
     onChange(listener) {
       if (typeof listener !== 'function') return () => {};
       listeners.add(listener);

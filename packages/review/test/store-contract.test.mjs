@@ -125,6 +125,7 @@ for (const adapter of adapters) {
       assert.equal(saved.chunks[0].reviewCaseId, 'daily-case');
       assert.deepEqual(saved.issues[0].sourceJudgementIds, ['judgement-daily-case']);
       assert.equal((await context.store.findDailyBatch('project-1', '2026-08-25')).batch.batchId, 'daily-batch-1');
+      assert.deepEqual((await context.store.listDailyBatches({ projectId: 'project-1', status: 'completed' })).map(item => item.batch.batchId), ['daily-batch-1']);
     } finally {
       context.close();
     }

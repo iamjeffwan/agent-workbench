@@ -13,6 +13,9 @@ importers:
       '@agent-workbench/codex-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-adapter
+      '@agent-workbench/optimization':
+        specifier: workspace:*
+        version: link:../../packages/optimization
       '@agent-workbench/project-observation':
         specifier: workspace:*
         version: link:../../packages/project-observation
@@ -154,6 +157,19 @@ importers:
         version: 5.7.2
 
   packages/observation-schema:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.7.2
+
+  packages/optimization:
+    dependencies:
+      '@agent-workbench/local-database':
+        specifier: workspace:*
+        version: link:../local-database
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

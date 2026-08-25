@@ -22,6 +22,8 @@ import type {
   ReviewStartInput,
   ReviewSummary,
   TemporaryPrompt,
+  OptimizationIssue,
+  OptimizationIssueDetail,
   SaveTaskScriptInput,
   SyncResult,
   SyncTaskManifest,
@@ -60,6 +62,11 @@ export interface WorkbenchConnection {
   appendReviewAnnotation(projectRoot: string | null, input: ReviewAnnotationInput): Promise<ReviewResult<ReviewRecord | null>>;
   listTemporaryPrompts(projectRoot?: string | null): Promise<ReviewResult<TemporaryPrompt[]>>;
   hideTemporaryPrompt(projectRoot: string | null, promptId: string): Promise<ReviewResult<TemporaryPrompt | null>>;
+  listOptimizationIssues(projectRoot?: string | null): Promise<ReviewResult<OptimizationIssue[]>>;
+  getOptimizationIssue(projectRoot: string | null, issueId: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
+  retryOptimizationIssues(projectRoot?: string | null): Promise<ReviewResult<{processed:number} | null>>;
+  reassignOptimizationDailyIssue(projectRoot: string | null, dailyIssueId: string, targetIssueId?: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
+  mergeOptimizationIssues(projectRoot: string | null, sourceIssueId: string, targetIssueId: string): Promise<ReviewResult<OptimizationIssueDetail | null>>;
   dailyReviewSchedule: DailyReviewScheduleState | null;
   runPendingDailyReview(projectRoot: string, localDate: string): Promise<ReviewResult<null>>;
   snoozeDailyReview(projectRoot: string, localDate: string): Promise<DailyReviewScheduleState>;
@@ -317,6 +324,12 @@ export function useWorkbenchState(): WorkbenchConnection {
     catch (error) { return failedReview<TemporaryPrompt | null>(error, null); }
   }, [bridge]);
 
+  const listOptimizationIssues = React.useCallback(async (projectRoot?: string | null) => { if (!bridge) return unavailableReview<OptimizationIssue[]>([]); try { return await bridge.listOptimizationIssues(projectRoot); } catch (error) { return failedReview<OptimizationIssue[]>(error, []); } }, [bridge]);
+  const getOptimizationIssue = React.useCallback(async (projectRoot: string | null, issueId: string) => { if (!bridge) return unavailableReview<OptimizationIssueDetail|null>(null); try { return await bridge.getOptimizationIssue(projectRoot, issueId); } catch (error) { return failedReview<OptimizationIssueDetail|null>(error, null); } }, [bridge]);
+  const retryOptimizationIssues = React.useCallback(async (projectRoot?: string | null) => { if (!bridge) return unavailableReview<{processed:number}|null>(null); try { return await bridge.retryOptimizationIssues(projectRoot); } catch (error) { return failedReview<{processed:number}|null>(error, null); } }, [bridge]);
+  const reassignOptimizationDailyIssue = React.useCallback(async (projectRoot: string | null, dailyIssueId: string, targetIssueId?: string) => { if (!bridge) return unavailableReview<OptimizationIssueDetail|null>(null); try { return await bridge.reassignOptimizationDailyIssue(projectRoot, dailyIssueId, targetIssueId); } catch (error) { return failedReview<OptimizationIssueDetail|null>(error, null); } }, [bridge]);
+  const mergeOptimizationIssues = React.useCallback(async (projectRoot: string | null, sourceIssueId: string, targetIssueId: string) => { if (!bridge) return unavailableReview<OptimizationIssueDetail|null>(null); try { return await bridge.mergeOptimizationIssues(projectRoot, sourceIssueId, targetIssueId); } catch (error) { return failedReview<OptimizationIssueDetail|null>(error, null); } }, [bridge]);
+
   const runPendingDailyReview = React.useCallback(async (projectRoot: string, localDate: string) => {
     if (!bridge) return unavailableReview<null>(null);
     try { return await bridge.runPendingDailyReview(projectRoot, localDate); }
@@ -443,6 +456,11 @@ export function useWorkbenchState(): WorkbenchConnection {
     appendReviewAnnotation,
     listTemporaryPrompts,
     hideTemporaryPrompt,
+    listOptimizationIssues,
+    getOptimizationIssue,
+    retryOptimizationIssues,
+    reassignOptimizationDailyIssue,
+    mergeOptimizationIssues,
     dailyReviewSchedule,
     runPendingDailyReview,
     snoozeDailyReview,

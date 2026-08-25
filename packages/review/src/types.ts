@@ -244,4 +244,5 @@ export type DailyReviewStore = {
   updateDailyBatch(batch: DailyReviewBatch): Promise<DailyReviewRecord>;
   updateDailyChunk(chunk: DailyReviewChunk): Promise<DailyReviewRecord>;
   replaceDailyIssues(batchId: string, issues: DailyIssue[]): Promise<DailyReviewRecord>;
+  listDailyBatches(options: { projectId: string; status?: DailyReviewBatchStatus; limit?: number }): Promise<DailyReviewRecord[]>;
 };
