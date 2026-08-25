@@ -9,6 +9,8 @@ import type {
   Evidence,
   HumanAnnotation,
   ModelJudgement,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   ReviewCase,
   ReviewCaseRecord,
   ReviewRun,
@@ -171,6 +173,40 @@ export const REVIEW_DATABASE_MIGRATIONS: readonly LocalDatabaseMigration[] = [{
     'CREATE INDEX daily_issues_batch ON daily_issues(batch_id, created_at)',
     'CREATE INDEX daily_issue_judgements_judgement ON daily_issue_judgements(judgement_id)',
   ],
+}, {
+  version: 111,
+  name: 'review-annotations-verdicts-v2',
+  statements: [
+    'DROP INDEX IF EXISTS review_annotations_judgement_created',
+    'ALTER TABLE review_annotations RENAME TO review_annotations_legacy',
+    `CREATE TABLE review_annotations (
+      annotation_id TEXT PRIMARY KEY,
+      judgement_id TEXT NOT NULL REFERENCES review_judgements(judgement_id) ON DELETE RESTRICT,
+      annotator_id TEXT NOT NULL,
+      verdict TEXT NOT NULL CHECK(verdict IN ('correct', 'incorrect')),
+      reason TEXT,
+      missing_issue TEXT,
+      created_at TEXT NOT NULL
+    ) STRICT`,
+    `INSERT INTO review_annotations(
+      annotation_id, judgement_id, annotator_id, verdict, reason, missing_issue, created_at
+    )
+    SELECT annotation_id, judgement_id, annotator_id,
+      CASE WHEN verdict = 'partially_correct' THEN 'incorrect' ELSE verdict END,
+      CASE WHEN verdict = 'partially_correct'
+        THEN trim(
+          CASE WHEN reason IS NULL OR reason = ''
+            THEN 'Legacy partially_correct annotation; correction fields were removed.'
+            ELSE 'Legacy partially_correct annotation; correction fields were removed. ' || reason
+          END
+        )
+        ELSE reason
+      END,
+      missing_issue, created_at
+    FROM review_annotations_legacy`,
+    'DROP TABLE review_annotations_legacy',
+    'CREATE INDEX review_annotations_judgement_created ON review_annotations(judgement_id, created_at)',
+  ],
 }];
 
 export function createSqliteReviewStore(options: { database: LocalDatabase }): ReviewStore & DailyReviewStore {
@@ -247,16 +283,13 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
         assertReviewCaseRecord(next);
         database.prepare(`
           INSERT INTO review_annotations(
-            annotation_id, judgement_id, annotator_id, verdict, corrected_category,
-            corrected_summary, reason, missing_issue, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            annotation_id, judgement_id, annotator_id, verdict, reason, missing_issue, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
           annotation.annotationId,
           annotation.judgementId,
           annotation.annotatorId,
           annotation.verdict,
-          annotation.correctedCategory ?? null,
-          annotation.correctedSummary ?? null,
           annotation.reason ?? null,
           annotation.missingIssue ?? null,
           annotation.createdAt,
@@ -282,6 +315,36 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
             ORDER BY created_at DESC, case_id DESC LIMIT ?
           `).all(limit);
       return (rows as Array<{ caseId: string }>).map(row => requiredCase(database, row.caseId).reviewCase);
+    },
+
+    async findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined> {
+      const sourceTypes = query.sourceTypes.filter(value => (
+        value === 'task' || value === 'manual_turn_selection' || value === 'daily_auto' || value === 're_review'
+      ));
+      if (sourceTypes.length === 0) return undefined;
+      const placeholders = sourceTypes.map(() => '?').join(', ');
+      const rows = database.prepare(`
+        SELECT case_id AS caseId FROM review_cases
+        WHERE project_id = ? AND source_type IN (${placeholders})
+        ORDER BY created_at DESC, case_id DESC LIMIT 1000
+      `).all(query.projectId, ...sourceTypes) as Array<{ caseId: string }>;
+      const requestedTurns = new Set(query.turns.map(turnKey));
+      for (const row of rows) {
+        const record = readCase(database, row.caseId);
+        if (!record || !sameTurnSet(record.reviewCase.turns, requestedTurns)) continue;
+        const run = [...record.runs].reverse().find(item => (
+          item.status === 'completed'
+          && item.invocation.provider === query.invocation.provider
+          && item.invocation.model === query.invocation.model
+          && (item.invocation.modelVersion ?? null) === (query.invocation.modelVersion ?? null)
+          && item.invocation.promptVersion === query.invocation.promptVersion
+          && item.invocation.reviewPolicyVersion === query.invocation.reviewPolicyVersion
+          && item.invocation.evidenceSchemaVersion === query.invocation.evidenceSchemaVersion
+          && completeStoredEvidence(record, item.runId)
+        ));
+        if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
+      }
+      return undefined;
     },
 
     async createDailyBatch(batch, chunks) {
@@ -403,8 +466,7 @@ function readCase(database: LocalDatabase, caseId: string): ReviewCaseRecord | u
   `).all(caseId) as Evidence[];
   const annotations = database.prepare(`
     SELECT annotation_id AS annotationId, annotations.judgement_id AS judgementId,
-      annotator_id AS annotatorId, verdict, corrected_category AS correctedCategory,
-      corrected_summary AS correctedSummary, reason, missing_issue AS missingIssue,
+      annotator_id AS annotatorId, verdict, reason, missing_issue AS missingIssue,
       annotations.created_at AS createdAt
     FROM review_annotations annotations
     JOIN review_judgements judgements ON judgements.judgement_id = annotations.judgement_id
@@ -565,6 +627,25 @@ function mapRun(row: RunRow): ReviewRun {
 
 function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined)) as T;
+}
+
+function completeStoredEvidence(record: ReviewCaseRecord, runId: string): boolean {
+  const judgements = record.judgements.filter(item => item.runId === runId);
+  return judgements.every(judgement => record.evidence.some(item => (
+    item.judgementId === judgement.judgementId
+      && typeof item.contentHash === 'string'
+      && item.contentHash.length > 0
+      && typeof item.cachedExcerpt === 'string'
+  )));
+}
+
+function sameTurnSet(turns: ReviewCase['turns'], requested: Set<string>): boolean {
+  return turns.length === requested.size
+    && turns.every(turn => requested.has(turnKey(turn)));
+}
+
+function turnKey(turn: ReviewCase['turns'][number]): string {
+  return `${turn.sessionId}\0${turn.turnId}`;
 }
 
 function readDailyBatch(database: LocalDatabase, batchId: string): DailyReviewRecord | undefined {

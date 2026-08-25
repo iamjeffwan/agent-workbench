@@ -1,6 +1,8 @@
 import type {
   DailyReviewRecord,
   HumanAnnotation,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   ReviewCase,
   ReviewCaseRecord,
   ReviewRunResult,
@@ -66,6 +68,28 @@ export function createInMemoryReviewStore(): ReviewStore & import('./types.js').
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         .slice(0, limit)
         .map(clone);
+    },
+
+    async findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined> {
+      const sourceTypes = new Set(query.sourceTypes);
+      const requestedTurns = new Set(query.turns.map(turnKey));
+      for (const record of records.values()) {
+        if (record.reviewCase.projectId !== query.projectId
+          || !sourceTypes.has(record.reviewCase.sourceType)
+          || !sameTurnSet(record.reviewCase.turns, requestedTurns)) continue;
+        const run = [...record.runs].reverse().find(item => (
+          item.status === 'completed'
+          && item.invocation.provider === query.invocation.provider
+          && item.invocation.model === query.invocation.model
+          && (item.invocation.modelVersion ?? null) === (query.invocation.modelVersion ?? null)
+          && item.invocation.promptVersion === query.invocation.promptVersion
+          && item.invocation.reviewPolicyVersion === query.invocation.reviewPolicyVersion
+          && item.invocation.evidenceSchemaVersion === query.invocation.evidenceSchemaVersion
+          && completeStoredEvidence(record, item.runId)
+        ));
+        if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
+      }
+      return undefined;
     },
 
     async createDailyBatch(batch, chunks) {
@@ -211,6 +235,25 @@ function requiredDailyRecord(
   const record = records.get(batchId);
   if (!record) throw new Error(`Daily review batch does not exist: ${batchId}`);
   return record;
+}
+
+function completeStoredEvidence(record: ReviewCaseRecord, runId: string): boolean {
+  const judgements = record.judgements.filter(item => item.runId === runId);
+  return judgements.every(judgement => record.evidence.some(item => (
+    item.judgementId === judgement.judgementId
+      && typeof item.contentHash === 'string'
+      && item.contentHash.length > 0
+      && typeof item.cachedExcerpt === 'string'
+  )));
+}
+
+function sameTurnSet(turns: ReviewCase['turns'], requested: Set<string>): boolean {
+  return turns.length === requested.size
+    && turns.every(turn => requested.has(turnKey(turn)));
+}
+
+function turnKey(turn: ReviewCase['turns'][number]): string {
+  return `${turn.sessionId}\0${turn.turnId}`;
 }
 
 function clone<T>(value: T): T {

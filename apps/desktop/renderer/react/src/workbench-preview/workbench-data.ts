@@ -302,7 +302,7 @@ export interface TaskResult<T> {
 
 export type ReviewRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type ReviewSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type ReviewAnnotationVerdict = 'correct' | 'partially_correct' | 'incorrect';
+export type ReviewAnnotationVerdict = 'correct' | 'incorrect';
 export type ReviewCategory = 'process_efficiency' | 'tool_usage' | 'repeated_failure' | 'architecture' | 'maintainability' | 'performance' | 'security' | 'testability';
 
 export interface ReviewSummary {
@@ -368,8 +368,6 @@ export interface ReviewRecord {
     judgementId: string;
     annotatorId: string;
     verdict: ReviewAnnotationVerdict;
-    correctedCategory?: ReviewCategory;
-    correctedSummary?: string;
     reason?: string;
     missingIssue?: string;
     createdAt: string;
@@ -384,8 +382,6 @@ export interface ReviewAnnotationInput {
   caseId: string;
   judgementId: string;
   verdict: ReviewAnnotationVerdict;
-  correctedCategory?: ReviewCategory;
-  correctedSummary?: string;
   reason?: string;
   missingIssue?: string;
 }

@@ -11,7 +11,7 @@ export type ReviewCategory =
   | 'testability';
 export type ReviewSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type Reviewability = 'sufficient' | 'insufficient' | 'needs_raw' | 'needs_project_context';
-export type AnnotationVerdict = 'correct' | 'partially_correct' | 'incorrect';
+export type AnnotationVerdict = 'correct' | 'incorrect';
 export type EvidenceTargetType =
   | 'event'
   | 'turn_diff'
@@ -105,8 +105,6 @@ export type HumanAnnotation = {
   judgementId: string;
   annotatorId: string;
   verdict: AnnotationVerdict;
-  correctedCategory?: ReviewCategory;
-  correctedSummary?: string;
   reason?: string;
   missingIssue?: string;
   createdAt: string;
@@ -205,6 +203,21 @@ export type ReviewStore = {
   appendAnnotation(annotation: HumanAnnotation): Promise<ReviewCaseRecord>;
   getCase(caseId: string): Promise<ReviewCaseRecord | undefined>;
   listCases(options?: { projectId?: string; limit?: number }): Promise<ReviewCase[]>;
+  findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined>;
+};
+
+export type ReusableReviewRunQuery = {
+  projectId: string;
+  turns: ReviewTurnRef[];
+  sourceTypes: ReviewSourceType[];
+  invocation: Pick<ModelInvocation, 'provider' | 'model' | 'promptVersion' | 'reviewPolicyVersion' | 'evidenceSchemaVersion'> & {
+    modelVersion?: string;
+  };
+};
+
+export type ReusableReviewRun = {
+  caseId: string;
+  runId: string;
 };
 
 export type DailyReviewStore = {

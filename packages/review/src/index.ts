@@ -98,6 +98,8 @@ export type {
   ReviewSourceType,
   ReviewStore,
   ReviewTurnRef,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   Reviewability,
   ValidationIssue,
   ValidationResult,

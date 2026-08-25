@@ -12,13 +12,25 @@ import {
   createReviewExecutor,
   enrichReviewEvidencePackageFromProject,
 } from '@agent-workbench/review';
+import {
+  cleanString,
+  createServiceResultHelpers,
+  errorMessage,
+  samePath,
+} from './service-result-helpers.mjs';
+import {
+  isCovered,
+  isTerminalTurn,
+  localDate,
+  localDateFromTimestamp,
+  planDailyChunks,
+} from './daily-review-planning.mjs';
 
 const SOURCE = 'daily-review';
 const REVIEW_MODEL = 'gpt-5.6-sol';
 const PROMPT_VERSION = 'review-prompt-1';
 const POLICY_VERSION = 'review-policy-1';
-const CHUNK_TURN_LIMIT = 8;
-const CHUNK_CHARACTER_THRESHOLD = 120_000;
+const { ready, failed } = createServiceResultHelpers(SOURCE);
 
 /**
  * Runs the non-interactive daily review workflow. It is intentionally a main
@@ -106,7 +118,7 @@ export function createDailyReviewService({
       if (record.batch.status === 'completed') return ready(record);
     } else {
       record = await recoverInterruptedWork(store, record, now());
-      const uncovered = collected.data.plans.filter(plan => !covered(record.chunks, plan.turns));
+      const uncovered = collected.data.plans.filter(plan => !isCovered(record.chunks, plan.turns));
       if (uncovered.length > 0) {
         record = await store.appendDailyChunks(record.batch.batchId, plansToChunks(uncovered, {
           batchId: record.batch.batchId,
@@ -171,7 +183,7 @@ export function createDailyReviewService({
       sessions.set(sessionId, adapted);
       sessionFiles.set(sessionId, path.resolve(sessionFile));
       for (const turn of detail.data.turns) {
-        if (!terminal(turn?.status) || localDateFromTimestamp(turn.updatedAt, zone) !== date) continue;
+        if (!isTerminalTurn(turn?.status) || localDateFromTimestamp(turn.updatedAt, zone) !== date) continue;
         const turnId = cleanString(turn.id);
         const normalized = adapted.turns.find(item => item.turnId === turnId);
         if (!turnId || !normalized) continue;
@@ -190,7 +202,7 @@ export function createDailyReviewService({
         ));
       }
     }
-    const plans = planChunks(candidates, tasksResult.data);
+    const plans = planDailyChunks(candidates, tasksResult.data);
     return ready({ plans, sessions, sessionFiles, observations });
   }
 
@@ -391,81 +403,20 @@ export function createDailyReviewService({
   }
 }
 
-function planChunks(candidates, tasks) {
-  const byKey = new Map(candidates.map(item => [turnKey(item.sessionId, item.turnId), item]));
-  const assigned = new Set();
-  const groups = [];
-  const sortedTasks = [...tasks].sort((left, right) => (
-    String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? '')) || String(left.id).localeCompare(String(right.id))
-  ));
-  for (const task of sortedTasks) {
-    const taskId = cleanString(task?.id);
-    const sessionId = cleanString(task?.sessionId);
-    if (!taskId || !sessionId || !Array.isArray(task?.turnIds)) continue;
-    const turns = task.turnIds.map(turnId => byKey.get(turnKey(sessionId, turnId))).filter(turn => turn && !assigned.has(turnKey(turn.sessionId, turn.turnId)));
-    if (turns.length === 0) continue;
-    turns.forEach(turn => assigned.add(turnKey(turn.sessionId, turn.turnId)));
-    groups.push({ groupKey: `task:${taskId}`, turns });
-  }
-  const unassigned = candidates.filter(turn => !assigned.has(turnKey(turn.sessionId, turn.turnId)));
-  const sessions = new Map();
-  for (const turn of unassigned) {
-    const values = sessions.get(turn.sessionId) ?? [];
-    values.push(turn);
-    sessions.set(turn.sessionId, values);
-  }
-  for (const [sessionId, turns] of [...sessions.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    groups.push({
-      groupKey: `session:${sessionId}`,
-      turns: turns.sort(compareTurns),
-    });
-  }
-  return groups.flatMap(group => splitGroup(group));
-}
-
-function splitGroup(group) {
-  const chunks = [];
-  let turns = [];
-  let characterCount = 0;
-  const flush = () => {
-    if (turns.length > 0) chunks.push({ groupKey: group.groupKey, turns, characterCount });
-    turns = [];
-    characterCount = 0;
-  };
-  for (const turn of group.turns) {
-    if (turns.length > 0 && (turns.length >= CHUNK_TURN_LIMIT || characterCount + turn.characterCount > CHUNK_CHARACTER_THRESHOLD)) flush();
-    turns.push(turn);
-    characterCount += turn.characterCount;
-  }
-  flush();
-  return chunks;
-}
-
 async function findReusableRun(store, projectId, chunk, descriptor) {
-  const cases = await store.listCases({ projectId, limit: 1000 });
-  for (const reviewCase of cases) {
-    if (!['task', 'manual_turn_selection'].includes(reviewCase.sourceType) || !sameTurns(reviewCase.turns, chunk.turns)) continue;
-    const record = await store.getCase(reviewCase.caseId);
-    const run = [...(record?.runs ?? [])].reverse().find(item => (
-      item.status === 'completed'
-      && item.invocation.provider === descriptor.provider
-      && item.invocation.model === descriptor.model
-      && (item.invocation.modelVersion ?? null) === (descriptor.modelVersion ?? null)
-      && item.invocation.promptVersion === PROMPT_VERSION
-      && item.invocation.reviewPolicyVersion === POLICY_VERSION
-      && item.invocation.evidenceSchemaVersion === REVIEW_EVIDENCE_SCHEMA_VERSION
-      && completeStoredEvidence(record, item.runId)
-    ));
-    if (run) return { caseId: reviewCase.caseId, runId: run.runId };
-  }
-  return null;
-}
-
-function completeStoredEvidence(record, runId) {
-  const judgements = record.judgements.filter(item => item.runId === runId);
-  return judgements.every(judgement => record.evidence.some(item => (
-    item.judgementId === judgement.judgementId && cleanString(item.contentHash) && typeof item.cachedExcerpt === 'string'
-  )));
+  return store.findReusableRun({
+    projectId,
+    turns: chunk.turns,
+    sourceTypes: ['task', 'manual_turn_selection'],
+    invocation: {
+      provider: descriptor.provider,
+      model: descriptor.model,
+      modelVersion: descriptor.modelVersion,
+      promptVersion: PROMPT_VERSION,
+      reviewPolicyVersion: POLICY_VERSION,
+      evidenceSchemaVersion: REVIEW_EVIDENCE_SCHEMA_VERSION,
+    },
+  });
 }
 
 async function chunkJudgements(store, chunks) {
@@ -477,9 +428,20 @@ async function chunkJudgements(store, chunks) {
       ? record?.runs.find(item => item.runId === chunk.reusedRunId)
       : [...(record?.runs ?? [])].reverse().find(item => item.status === 'completed');
     if (!run || run.status !== 'completed') throw new Error(`Completed daily chunk has no completed review run: ${chunk.chunkId}`);
-    result.push(...record.judgements.filter(item => item.runId === run.runId));
+    result.push(...record.judgements
+      .filter(item => item.runId === run.runId)
+      .filter(judgement => latestAnnotation(record, judgement.judgementId)?.verdict !== 'incorrect'));
   }
   return result;
+}
+
+function latestAnnotation(record, judgementId) {
+  return record.annotations
+    .filter(annotation => annotation.judgementId === judgementId)
+    .sort((left, right) => (
+      left.createdAt.localeCompare(right.createdAt) || left.annotationId.localeCompare(right.annotationId)
+    ))
+    .at(-1);
 }
 
 async function recoverInterruptedWork(store, record, timestamp) {
@@ -549,31 +511,4 @@ function createRawReferenceReader(sessionFiles, readFile) {
   };
 }
 
-function covered(chunks, turns) {
-  const existing = new Set(chunks.flatMap(chunk => chunk.turns.map(turn => turnKey(turn.sessionId, turn.turnId))));
-  return turns.every(turn => existing.has(turnKey(turn.sessionId, turn.turnId)));
-}
-
-function sameTurns(left, right) {
-  if (left.length !== right.length) return false;
-  const keys = new Set(left.map(turn => turnKey(turn.sessionId, turn.turnId)));
-  return right.every(turn => keys.has(turnKey(turn.sessionId, turn.turnId)));
-}
-
-function terminal(status) { return ['completed', 'failed', 'aborted'].includes(status); }
-function compareTurns(left, right) { return left.endedAt.localeCompare(right.endedAt) || left.sequence - right.sequence || left.turnId.localeCompare(right.turnId); }
 function turnKey(sessionId, turnId) { return `${sessionId}\0${turnId}`; }
-function localDate(value, zone) { return localDateFromTimestamp(value.toISOString(), zone); }
-function localDateFromTimestamp(value, zone) {
-  if (!cleanString(value)) return null;
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
-    const fields = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
-    return `${fields.year}-${fields.month}-${fields.day}`;
-  } catch { return null; }
-}
-function samePath(left, right) { return typeof right === 'string' && (process.platform === 'win32' ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase() : path.resolve(left) === path.resolve(right)); }
-function cleanString(value) { return typeof value === 'string' && value.trim() ? value.trim() : null; }
-function errorMessage(error, fallback) { return error instanceof Error && error.message ? error.message : fallback; }
-function ready(data) { return { status: 'ready', source: SOURCE, data, error: null }; }
-function failed(data, error) { return { status: 'error', source: SOURCE, data, error }; }

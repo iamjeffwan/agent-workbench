@@ -79,6 +79,27 @@ test('reuses a compatible completed active review without executing the chunk ag
   assert.equal(result.data.chunks[0].reusedRunId, 'active-run');
 });
 
+test('does not send an actively rejected judgement to daily synthesis', async () => {
+  const fixture = createFixture([turn('turn-1', 'completed', '2026-08-25T01:00:00.000Z')]);
+  const store = createInMemoryReviewStore();
+  await store.createCase({
+    caseId: 'active-case', projectId: 'project-1', sourceType: 'manual_turn_selection',
+    turns: fixture.turns.map(item => ({ sessionId: fixture.sessionId, turnId: item.id })), createdAt: '2026-08-25T00:00:00.000Z',
+  });
+  await store.recordRun(completedResult('active-case', 'active-run'));
+  await store.appendAnnotation({
+    annotationId: 'annotation-rejected', judgementId: 'judgement-active-run', annotatorId: 'local-user',
+    verdict: 'incorrect', reason: 'The evidence does not support this finding.', createdAt: '2026-08-25T02:00:00.000Z',
+  });
+  const harness = serviceHarness(fixture, { store });
+
+  const result = await harness.service.run(fixture.projectRoot, { localDate: '2026-08-25', timeZone: 'UTC' });
+
+  assert.equal(result.status, 'ready', result.error);
+  assert.equal(result.data.batch.status, 'completed');
+  assert.equal(result.data.issues.length, 0);
+});
+
 test('retries only failed chunks and delays synthesis until all chunks complete', async () => {
   const fixture = createFixture([turn('turn-1', 'completed', '2026-08-25T01:00:00.000Z')]);
   let failedOnce = true;

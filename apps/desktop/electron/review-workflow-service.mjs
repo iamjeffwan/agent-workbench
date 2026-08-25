@@ -12,11 +12,18 @@ import {
   resolveDefaultReviewDatabasePath,
 } from './local-review-database.mjs';
 import { createDailyReviewService } from './daily-review-service.mjs';
+import {
+  cleanString,
+  createServiceResultHelpers,
+  errorMessage,
+  samePath,
+} from './service-result-helpers.mjs';
 
 const SOURCE = 'workbench-review';
 const REVIEW_MODEL = 'gpt-5.6-sol';
 const PROMPT_VERSION = 'review-prompt-1';
 const POLICY_VERSION = 'review-policy-1';
+const { ready, failed } = createServiceResultHelpers(SOURCE);
 
 /**
  * Owns the desktop review workflow. Its small interface deliberately hides
@@ -160,8 +167,6 @@ export function createReviewWorkflowService({
           judgementId,
           annotatorId: 'local-user',
           verdict,
-          ...(reviewCategory(input?.correctedCategory) ? { correctedCategory: input.correctedCategory } : {}),
-          ...(cleanString(input?.correctedSummary) ? { correctedSummary: cleanString(input.correctedSummary) } : {}),
           ...(cleanString(input?.reason) ? { reason: cleanString(input.reason) } : {}),
           ...(cleanString(input?.missingIssue) ? { missingIssue: cleanString(input.missingIssue) } : {}),
           createdAt: now().toISOString(),
@@ -419,41 +424,13 @@ function highestSeverity(values) {
 }
 
 function annotationVerdict(value) {
-  return ['correct', 'partially_correct', 'incorrect'].includes(value) ? value : null;
-}
-
-function reviewCategory(value) {
-  return [
-    'process_efficiency', 'tool_usage', 'repeated_failure', 'architecture',
-    'maintainability', 'performance', 'security', 'testability',
-  ].includes(value);
+  return ['correct', 'incorrect'].includes(value) ? value : null;
 }
 
 function uniqueStrings(value) {
   return Array.isArray(value) ? [...new Set(value.map(cleanString).filter(Boolean))] : [];
 }
 
-function cleanString(value) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
 function hash(value) {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function samePath(left, right) {
-  const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
-  return normalize(left) === normalize(right);
-}
-
-function errorMessage(error, fallback) {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function ready(data) {
-  return { status: 'ready', source: SOURCE, data, error: null };
-}
-
-function failed(data, error) {
-  return { status: 'error', source: SOURCE, data, error };
 }
