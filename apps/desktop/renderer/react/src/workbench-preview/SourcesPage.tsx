@@ -234,16 +234,12 @@ function ReviewDetail({ record, reviewsByTurn, onEvidence, onAnnotation }: { rec
 function AnnotationForm({ caseId, judgementId, annotations, onSubmit }: { caseId: string; judgementId: string; annotations: ReviewRecord['annotations']; onSubmit(input: ReviewAnnotationInput): Promise<void> }) {
   const [verdict, setVerdict] = React.useState<ReviewAnnotationInput['verdict']>('correct');
   const [reason, setReason] = React.useState('');
-  const [correctedCategory, setCorrectedCategory] = React.useState('');
-  const [correctedSummary, setCorrectedSummary] = React.useState('');
   const [missingIssue, setMissingIssue] = React.useState('');
   const [saving, setSaving] = React.useState(false);
   const latest = annotations.at(-1);
-  return <ReviewForm onSubmit={event => { event.preventDefault(); if (saving) return; setSaving(true); void onSubmit({ caseId, judgementId, verdict, reason: reason.trim() || undefined, ...(correctedCategory ? { correctedCategory: correctedCategory as ReviewAnnotationInput['correctedCategory'] } : {}), ...(correctedSummary.trim() ? { correctedSummary: correctedSummary.trim() } : {}), ...(missingIssue.trim() ? { missingIssue: missingIssue.trim() } : {}) }).finally(() => { setSaving(false); setReason(''); setCorrectedCategory(''); setCorrectedSummary(''); setMissingIssue(''); }); }}>
-    <label>Human review<select value={verdict} onChange={event => setVerdict(event.target.value as ReviewAnnotationInput['verdict'])}><option value="correct">Correct</option><option value="partially_correct">Partially correct</option><option value="incorrect">Incorrect</option></select></label>
-    <label>Reason (optional)<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain the confirmation or correction" /></label>
-    <label>Corrected category (optional)<select value={correctedCategory} onChange={event => setCorrectedCategory(event.target.value)}><option value="">No correction</option><option value="process_efficiency">Process efficiency</option><option value="tool_usage">Tool usage</option><option value="repeated_failure">Repeated failure</option><option value="architecture">Architecture</option><option value="maintainability">Maintainability</option><option value="performance">Performance</option><option value="security">Security</option><option value="testability">Testability</option></select></label>
-    <label>Corrected summary (optional)<textarea value={correctedSummary} onChange={event => setCorrectedSummary(event.target.value)} placeholder="State the corrected finding" /></label>
+  return <ReviewForm onSubmit={event => { event.preventDefault(); if (saving) return; setSaving(true); void onSubmit({ caseId, judgementId, verdict, reason: reason.trim() || undefined, ...(missingIssue.trim() ? { missingIssue: missingIssue.trim() } : {}) }).finally(() => { setSaving(false); setReason(''); setMissingIssue(''); }); }}>
+    <label>Human review<select value={verdict} onChange={event => setVerdict(event.target.value as ReviewAnnotationInput['verdict'])}><option value="correct">Correct</option><option value="incorrect">Incorrect</option></select></label>
+    <label>Reason (optional)<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Explain the confirmation or rejection" /></label>
     <label>Missing issue (optional)<textarea value={missingIssue} onChange={event => setMissingIssue(event.target.value)} placeholder="Record an issue the review missed" /></label>
     {latest ? <small>Latest review: {latest.verdict.replaceAll('_', ' ')} · {formatDate(latest.createdAt)}</small> : <small>No human review has been saved yet.</small>}
     <ActionButton type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save review'}</ActionButton>

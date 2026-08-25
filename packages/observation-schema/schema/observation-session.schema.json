@@ -81,7 +81,7 @@
         "fieldProvenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } },
         "startedAt": { "type": "string" },
         "endedAt": { "type": "string" },
-        "status": { "enum": ["completed", "aborted", "in_progress"] },
+        "status": { "enum": ["completed", "failed", "aborted", "in_progress"] },
         "model": { "type": "string" },
         "cwd": { "type": "string" },
         "durationMs": { "type": "number", "minimum": 0 },

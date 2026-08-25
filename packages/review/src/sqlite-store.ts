@@ -1,9 +1,16 @@
 import type { LocalDatabase, LocalDatabaseMigration } from '@agent-workbench/local-database';
 
 import type {
+  DailyIssue,
+  DailyReviewBatch,
+  DailyReviewChunk,
+  DailyReviewRecord,
+  DailyReviewStore,
   Evidence,
   HumanAnnotation,
   ModelJudgement,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   ReviewCase,
   ReviewCaseRecord,
   ReviewRun,
@@ -11,6 +18,7 @@ import type {
   ReviewRunResult,
   ReviewStore,
 } from './types.js';
+import { assertDailyReviewRecord } from './daily-review.js';
 import { assertReviewCaseRecord } from './validate.js';
 
 export const REVIEW_DATABASE_MIGRATIONS: readonly LocalDatabaseMigration[] = [{
@@ -95,9 +103,113 @@ export const REVIEW_DATABASE_MIGRATIONS: readonly LocalDatabaseMigration[] = [{
     'CREATE INDEX review_evidence_judgement ON review_evidence(judgement_id)',
     'CREATE INDEX review_annotations_judgement_created ON review_annotations(judgement_id, created_at)',
   ],
+}, {
+  version: 110,
+  name: 'daily-review-records-v1',
+  statements: [
+    `CREATE TABLE daily_review_batches (
+      batch_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      local_date TEXT NOT NULL,
+      time_zone TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'partial', 'completed', 'failed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      completed_at TEXT,
+      synthesis_status TEXT NOT NULL CHECK(synthesis_status IN ('queued', 'running', 'completed', 'failed')),
+      synthesis_invocation_json TEXT CHECK(synthesis_invocation_json IS NULL OR json_valid(synthesis_invocation_json)),
+      synthesis_started_at TEXT,
+      synthesis_completed_at TEXT,
+      synthesis_usage_json TEXT CHECK(synthesis_usage_json IS NULL OR json_valid(synthesis_usage_json)),
+      synthesis_actual_cost REAL CHECK(synthesis_actual_cost IS NULL OR synthesis_actual_cost >= 0),
+      synthesis_latency_ms REAL CHECK(synthesis_latency_ms IS NULL OR synthesis_latency_ms >= 0),
+      synthesis_failure_reason TEXT,
+      synthesis_artifacts_json TEXT CHECK(synthesis_artifacts_json IS NULL OR json_valid(synthesis_artifacts_json)),
+      UNIQUE(project_id, local_date)
+    ) STRICT`,
+    `CREATE TABLE daily_review_chunks (
+      chunk_id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL REFERENCES daily_review_batches(batch_id) ON DELETE RESTRICT,
+      sequence INTEGER NOT NULL CHECK(sequence >= 0),
+      group_key TEXT NOT NULL,
+      character_count INTEGER NOT NULL CHECK(character_count >= 0),
+      status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed')),
+      review_case_id TEXT REFERENCES review_cases(case_id) ON DELETE RESTRICT,
+      reused_run_id TEXT REFERENCES review_runs(run_id) ON DELETE RESTRICT,
+      started_at TEXT,
+      completed_at TEXT,
+      failure_reason TEXT,
+      UNIQUE(batch_id, sequence)
+    ) STRICT`,
+    `CREATE TABLE daily_review_chunk_turns (
+      chunk_id TEXT NOT NULL REFERENCES daily_review_chunks(chunk_id) ON DELETE RESTRICT,
+      sequence INTEGER NOT NULL CHECK(sequence >= 0),
+      session_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      PRIMARY KEY(chunk_id, sequence),
+      UNIQUE(chunk_id, session_id, turn_id)
+    ) STRICT`,
+    `CREATE TABLE daily_issues (
+      issue_id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL REFERENCES daily_review_batches(batch_id) ON DELETE RESTRICT,
+      issue_fingerprint TEXT NOT NULL,
+      category TEXT NOT NULL CHECK(category IN ('process_efficiency', 'tool_usage', 'repeated_failure', 'architecture', 'maintainability', 'performance', 'security', 'testability')),
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      severity TEXT NOT NULL CHECK(severity IN ('low', 'medium', 'high', 'critical')),
+      impact TEXT NOT NULL,
+      recommendation TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(batch_id, issue_fingerprint)
+    ) STRICT`,
+    `CREATE TABLE daily_issue_judgements (
+      issue_id TEXT NOT NULL REFERENCES daily_issues(issue_id) ON DELETE RESTRICT,
+      judgement_id TEXT NOT NULL REFERENCES review_judgements(judgement_id) ON DELETE RESTRICT,
+      PRIMARY KEY(issue_id, judgement_id)
+    ) STRICT`,
+    'CREATE INDEX daily_review_batches_project_date ON daily_review_batches(project_id, local_date DESC)',
+    'CREATE INDEX daily_review_chunks_batch ON daily_review_chunks(batch_id, sequence)',
+    'CREATE INDEX daily_review_chunk_turns_source ON daily_review_chunk_turns(session_id, turn_id)',
+    'CREATE INDEX daily_issues_batch ON daily_issues(batch_id, created_at)',
+    'CREATE INDEX daily_issue_judgements_judgement ON daily_issue_judgements(judgement_id)',
+  ],
+}, {
+  version: 111,
+  name: 'review-annotations-verdicts-v2',
+  statements: [
+    'DROP INDEX IF EXISTS review_annotations_judgement_created',
+    'ALTER TABLE review_annotations RENAME TO review_annotations_legacy',
+    `CREATE TABLE review_annotations (
+      annotation_id TEXT PRIMARY KEY,
+      judgement_id TEXT NOT NULL REFERENCES review_judgements(judgement_id) ON DELETE RESTRICT,
+      annotator_id TEXT NOT NULL,
+      verdict TEXT NOT NULL CHECK(verdict IN ('correct', 'incorrect')),
+      reason TEXT,
+      missing_issue TEXT,
+      created_at TEXT NOT NULL
+    ) STRICT`,
+    `INSERT INTO review_annotations(
+      annotation_id, judgement_id, annotator_id, verdict, reason, missing_issue, created_at
+    )
+    SELECT annotation_id, judgement_id, annotator_id,
+      CASE WHEN verdict = 'partially_correct' THEN 'incorrect' ELSE verdict END,
+      CASE WHEN verdict = 'partially_correct'
+        THEN trim(
+          CASE WHEN reason IS NULL OR reason = ''
+            THEN 'Legacy partially_correct annotation; correction fields were removed.'
+            ELSE 'Legacy partially_correct annotation; correction fields were removed. ' || reason
+          END
+        )
+        ELSE reason
+      END,
+      missing_issue, created_at
+    FROM review_annotations_legacy`,
+    'DROP TABLE review_annotations_legacy',
+    'CREATE INDEX review_annotations_judgement_created ON review_annotations(judgement_id, created_at)',
+  ],
 }];
 
-export function createSqliteReviewStore(options: { database: LocalDatabase }): ReviewStore {
+export function createSqliteReviewStore(options: { database: LocalDatabase }): ReviewStore & DailyReviewStore {
   const database = options.database;
   database.migrate(REVIEW_DATABASE_MIGRATIONS);
 
@@ -171,16 +283,13 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
         assertReviewCaseRecord(next);
         database.prepare(`
           INSERT INTO review_annotations(
-            annotation_id, judgement_id, annotator_id, verdict, corrected_category,
-            corrected_summary, reason, missing_issue, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            annotation_id, judgement_id, annotator_id, verdict, reason, missing_issue, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
           annotation.annotationId,
           annotation.judgementId,
           annotation.annotatorId,
           annotation.verdict,
-          annotation.correctedCategory ?? null,
-          annotation.correctedSummary ?? null,
           annotation.reason ?? null,
           annotation.missingIssue ?? null,
           annotation.createdAt,
@@ -206,6 +315,114 @@ export function createSqliteReviewStore(options: { database: LocalDatabase }): R
             ORDER BY created_at DESC, case_id DESC LIMIT ?
           `).all(limit);
       return (rows as Array<{ caseId: string }>).map(row => requiredCase(database, row.caseId).reviewCase);
+    },
+
+    async findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined> {
+      const sourceTypes = query.sourceTypes.filter(value => (
+        value === 'task' || value === 'manual_turn_selection' || value === 'daily_auto' || value === 're_review'
+      ));
+      if (sourceTypes.length === 0) return undefined;
+      const placeholders = sourceTypes.map(() => '?').join(', ');
+      const rows = database.prepare(`
+        SELECT case_id AS caseId FROM review_cases
+        WHERE project_id = ? AND source_type IN (${placeholders})
+        ORDER BY created_at DESC, case_id DESC LIMIT 1000
+      `).all(query.projectId, ...sourceTypes) as Array<{ caseId: string }>;
+      const requestedTurns = new Set(query.turns.map(turnKey));
+      for (const row of rows) {
+        const record = readCase(database, row.caseId);
+        if (!record || !sameTurnSet(record.reviewCase.turns, requestedTurns)) continue;
+        const run = [...record.runs].reverse().find(item => (
+          item.status === 'completed'
+          && item.invocation.provider === query.invocation.provider
+          && item.invocation.model === query.invocation.model
+          && (item.invocation.modelVersion ?? null) === (query.invocation.modelVersion ?? null)
+          && item.invocation.promptVersion === query.invocation.promptVersion
+          && item.invocation.reviewPolicyVersion === query.invocation.reviewPolicyVersion
+          && item.invocation.evidenceSchemaVersion === query.invocation.evidenceSchemaVersion
+          && completeStoredEvidence(record, item.runId)
+        ));
+        if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
+      }
+      return undefined;
+    },
+
+    async createDailyBatch(batch, chunks) {
+      return database.transaction(() => {
+        if (readDailyBatch(database, batch.batchId)) {
+          throw new Error(`Daily review batch already exists: ${batch.batchId}`);
+        }
+        const duplicate = database.prepare(
+          'SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? AND local_date = ?',
+        ).get(batch.projectId, batch.localDate) as { batchId: string } | undefined;
+        if (duplicate) throw new Error(`Daily review batch already exists for ${batch.projectId}:${batch.localDate}`);
+        const record: DailyReviewRecord = { batch, chunks, issues: [] };
+        assertDailyReviewRecord(record);
+        insertDailyBatch(database, batch);
+        chunks.forEach(chunk => insertDailyChunk(database, chunk));
+        return structuredClone(record);
+      });
+    },
+
+    async findDailyBatch(projectId, localDate) {
+      const row = database.prepare(
+        'SELECT batch_id AS batchId FROM daily_review_batches WHERE project_id = ? AND local_date = ?',
+      ).get(projectId, localDate) as { batchId: string } | undefined;
+      const record = row ? readDailyBatch(database, row.batchId) : undefined;
+      return record ? structuredClone(record) : undefined;
+    },
+
+    async getDailyBatch(batchId) {
+      const record = readDailyBatch(database, batchId);
+      return record ? structuredClone(record) : undefined;
+    },
+
+    async appendDailyChunks(batchId, chunks) {
+      return database.transaction(() => {
+        const record = requiredDailyBatch(database, batchId);
+        const next: DailyReviewRecord = { ...record, chunks: [...record.chunks, ...chunks] };
+        assertDailyReviewRecord(next);
+        chunks.forEach(chunk => insertDailyChunk(database, chunk));
+        return structuredClone(next);
+      });
+    },
+
+    async updateDailyBatch(batch) {
+      return database.transaction(() => {
+        const record = requiredDailyBatch(database, batch.batchId);
+        const next: DailyReviewRecord = { ...record, batch };
+        assertDailyReviewRecord(next);
+        updateDailyBatchRow(database, batch);
+        return structuredClone(next);
+      });
+    },
+
+    async updateDailyChunk(chunk) {
+      return database.transaction(() => {
+        const record = requiredDailyBatch(database, chunk.batchId);
+        if (!record.chunks.some(item => item.chunkId === chunk.chunkId)) {
+          throw new Error(`Daily review chunk does not exist: ${chunk.chunkId}`);
+        }
+        const next: DailyReviewRecord = {
+          ...record,
+          chunks: record.chunks.map(item => item.chunkId === chunk.chunkId ? chunk : item),
+        };
+        assertDailyReviewRecord(next);
+        updateDailyChunkRow(database, chunk);
+        return structuredClone(next);
+      });
+    },
+
+    async replaceDailyIssues(batchId, issues) {
+      return database.transaction(() => {
+        const record = requiredDailyBatch(database, batchId);
+        const next: DailyReviewRecord = { ...record, issues };
+        assertDailyReviewRecord(next);
+        database.prepare('DELETE FROM daily_issue_judgements WHERE issue_id IN (SELECT issue_id FROM daily_issues WHERE batch_id = ?)').run(batchId);
+        database.prepare('DELETE FROM daily_issues WHERE batch_id = ?').run(batchId);
+        issues.forEach(issue => insertDailyIssue(database, issue));
+        return structuredClone(next);
+      });
     },
   };
 }
@@ -249,8 +466,7 @@ function readCase(database: LocalDatabase, caseId: string): ReviewCaseRecord | u
   `).all(caseId) as Evidence[];
   const annotations = database.prepare(`
     SELECT annotation_id AS annotationId, annotations.judgement_id AS judgementId,
-      annotator_id AS annotatorId, verdict, corrected_category AS correctedCategory,
-      corrected_summary AS correctedSummary, reason, missing_issue AS missingIssue,
+      annotator_id AS annotatorId, verdict, reason, missing_issue AS missingIssue,
       annotations.created_at AS createdAt
     FROM review_annotations annotations
     JOIN review_judgements judgements ON judgements.judgement_id = annotations.judgement_id
@@ -413,6 +629,174 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined)) as T;
 }
 
+function completeStoredEvidence(record: ReviewCaseRecord, runId: string): boolean {
+  const judgements = record.judgements.filter(item => item.runId === runId);
+  return judgements.every(judgement => record.evidence.some(item => (
+    item.judgementId === judgement.judgementId
+      && typeof item.contentHash === 'string'
+      && item.contentHash.length > 0
+      && typeof item.cachedExcerpt === 'string'
+  )));
+}
+
+function sameTurnSet(turns: ReviewCase['turns'], requested: Set<string>): boolean {
+  return turns.length === requested.size
+    && turns.every(turn => requested.has(turnKey(turn)));
+}
+
+function turnKey(turn: ReviewCase['turns'][number]): string {
+  return `${turn.sessionId}\0${turn.turnId}`;
+}
+
+function readDailyBatch(database: LocalDatabase, batchId: string): DailyReviewRecord | undefined {
+  const row = database.prepare(`
+    SELECT batch_id AS batchId, project_id AS projectId, local_date AS localDate, time_zone AS timeZone,
+      status, created_at AS createdAt, updated_at AS updatedAt, completed_at AS completedAt,
+      synthesis_status AS synthesisStatus, synthesis_invocation_json AS synthesisInvocationJson,
+      synthesis_started_at AS synthesisStartedAt, synthesis_completed_at AS synthesisCompletedAt,
+      synthesis_usage_json AS synthesisUsageJson, synthesis_actual_cost AS synthesisActualCost,
+      synthesis_latency_ms AS synthesisLatencyMs, synthesis_failure_reason AS synthesisFailureReason,
+      synthesis_artifacts_json AS synthesisArtifactsJson
+    FROM daily_review_batches WHERE batch_id = ?
+  `).get(batchId) as DailyBatchRow | undefined;
+  if (!row) return undefined;
+  const chunks = (database.prepare(`
+    SELECT chunk_id AS chunkId, batch_id AS batchId, sequence, group_key AS groupKey,
+      character_count AS characterCount, status, review_case_id AS reviewCaseId,
+      reused_run_id AS reusedRunId, started_at AS startedAt, completed_at AS completedAt,
+      failure_reason AS failureReason
+    FROM daily_review_chunks WHERE batch_id = ? ORDER BY sequence
+  `).all(batchId) as DailyChunkRow[]).map(chunk => ({
+    ...compact(chunk),
+    turns: database.prepare(`
+      SELECT session_id AS sessionId, turn_id AS turnId
+      FROM daily_review_chunk_turns WHERE chunk_id = ? ORDER BY sequence
+    `).all(chunk.chunkId) as DailyReviewChunk['turns'],
+  }));
+  const issues = (database.prepare(`
+    SELECT issue_id AS issueId, batch_id AS batchId, issue_fingerprint AS issueFingerprint,
+      category, title, summary, severity, impact, recommendation, created_at AS createdAt
+    FROM daily_issues WHERE batch_id = ? ORDER BY created_at, issue_id
+  `).all(batchId) as DailyIssueRow[]).map(issue => ({
+    ...issue,
+    sourceJudgementIds: (database.prepare(`
+      SELECT judgement_id AS judgementId FROM daily_issue_judgements
+      WHERE issue_id = ? ORDER BY judgement_id
+    `).all(issue.issueId) as Array<{ judgementId: string }>).map(item => item.judgementId),
+  }));
+  const batch: DailyReviewBatch = {
+    batchId: row.batchId,
+    projectId: row.projectId,
+    localDate: row.localDate,
+    timeZone: row.timeZone,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    ...(row.completedAt ? { completedAt: row.completedAt } : {}),
+    synthesis: {
+      status: row.synthesisStatus,
+      ...(row.synthesisInvocationJson ? { invocation: JSON.parse(row.synthesisInvocationJson) } : {}),
+      ...(row.synthesisStartedAt ? { startedAt: row.synthesisStartedAt } : {}),
+      ...(row.synthesisCompletedAt ? { completedAt: row.synthesisCompletedAt } : {}),
+      ...(row.synthesisUsageJson ? { usage: JSON.parse(row.synthesisUsageJson) } : {}),
+      ...(row.synthesisActualCost !== null ? { actualCost: row.synthesisActualCost } : {}),
+      ...(row.synthesisLatencyMs !== null ? { latencyMs: row.synthesisLatencyMs } : {}),
+      ...(row.synthesisFailureReason ? { failureReason: row.synthesisFailureReason } : {}),
+      ...(row.synthesisArtifactsJson ? { artifacts: JSON.parse(row.synthesisArtifactsJson) } : {}),
+    },
+  };
+  const record: DailyReviewRecord = { batch, chunks, issues };
+  assertDailyReviewRecord(record);
+  return record;
+}
+
+function requiredDailyBatch(database: LocalDatabase, batchId: string): DailyReviewRecord {
+  const record = readDailyBatch(database, batchId);
+  if (!record) throw new Error(`Daily review batch does not exist: ${batchId}`);
+  return record;
+}
+
+function insertDailyBatch(database: LocalDatabase, batch: DailyReviewBatch): void {
+  database.prepare(`
+    INSERT INTO daily_review_batches(
+      batch_id, project_id, local_date, time_zone, status, created_at, updated_at, completed_at,
+      synthesis_status, synthesis_invocation_json, synthesis_started_at, synthesis_completed_at,
+      synthesis_usage_json, synthesis_actual_cost, synthesis_latency_ms, synthesis_failure_reason,
+      synthesis_artifacts_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(...dailyBatchValues(batch));
+}
+
+function updateDailyBatchRow(database: LocalDatabase, batch: DailyReviewBatch): void {
+  database.prepare(`
+    UPDATE daily_review_batches SET
+      project_id = ?, local_date = ?, time_zone = ?, status = ?, created_at = ?, updated_at = ?,
+      completed_at = ?, synthesis_status = ?, synthesis_invocation_json = ?, synthesis_started_at = ?,
+      synthesis_completed_at = ?, synthesis_usage_json = ?, synthesis_actual_cost = ?,
+      synthesis_latency_ms = ?, synthesis_failure_reason = ?, synthesis_artifacts_json = ?
+    WHERE batch_id = ?
+  `).run(...dailyBatchValues(batch).slice(1), batch.batchId);
+}
+
+function dailyBatchValues(batch: DailyReviewBatch): Array<string | number | null> {
+  return [
+    batch.batchId, batch.projectId, batch.localDate, batch.timeZone, batch.status, batch.createdAt,
+    batch.updatedAt, batch.completedAt ?? null, batch.synthesis.status,
+    batch.synthesis.invocation ? JSON.stringify(batch.synthesis.invocation) : null,
+    batch.synthesis.startedAt ?? null, batch.synthesis.completedAt ?? null,
+    batch.synthesis.usage ? JSON.stringify(batch.synthesis.usage) : null,
+    batch.synthesis.actualCost ?? null, batch.synthesis.latencyMs ?? null,
+    batch.synthesis.failureReason ?? null,
+    batch.synthesis.artifacts ? JSON.stringify(batch.synthesis.artifacts) : null,
+  ];
+}
+
+function insertDailyChunk(database: LocalDatabase, chunk: DailyReviewChunk): void {
+  database.prepare(`
+    INSERT INTO daily_review_chunks(
+      chunk_id, batch_id, sequence, group_key, character_count, status, review_case_id,
+      reused_run_id, started_at, completed_at, failure_reason
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(...dailyChunkValues(chunk));
+  const insertTurn = database.prepare(`
+    INSERT INTO daily_review_chunk_turns(chunk_id, sequence, session_id, turn_id) VALUES (?, ?, ?, ?)
+  `);
+  chunk.turns.forEach((turn, sequence) => insertTurn.run(chunk.chunkId, sequence, turn.sessionId, turn.turnId));
+}
+
+function updateDailyChunkRow(database: LocalDatabase, chunk: DailyReviewChunk): void {
+  database.prepare(`
+    UPDATE daily_review_chunks SET
+      batch_id = ?, sequence = ?, group_key = ?, character_count = ?, status = ?, review_case_id = ?,
+      reused_run_id = ?, started_at = ?, completed_at = ?, failure_reason = ?
+    WHERE chunk_id = ?
+  `).run(...dailyChunkValues(chunk).slice(1), chunk.chunkId);
+}
+
+function dailyChunkValues(chunk: DailyReviewChunk): Array<string | number | null> {
+  return [
+    chunk.chunkId, chunk.batchId, chunk.sequence, chunk.groupKey, chunk.characterCount, chunk.status,
+    chunk.reviewCaseId ?? null, chunk.reusedRunId ?? null, chunk.startedAt ?? null,
+    chunk.completedAt ?? null, chunk.failureReason ?? null,
+  ];
+}
+
+function insertDailyIssue(database: LocalDatabase, issue: DailyIssue): void {
+  database.prepare(`
+    INSERT INTO daily_issues(
+      issue_id, batch_id, issue_fingerprint, category, title, summary, severity, impact,
+      recommendation, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    issue.issueId, issue.batchId, issue.issueFingerprint, issue.category, issue.title, issue.summary,
+    issue.severity, issue.impact, issue.recommendation, issue.createdAt,
+  );
+  const insertSource = database.prepare(
+    'INSERT INTO daily_issue_judgements(issue_id, judgement_id) VALUES (?, ?)',
+  );
+  issue.sourceJudgementIds.forEach(judgementId => insertSource.run(issue.issueId, judgementId));
+}
+
 type CaseRow = {
   caseId: string;
   projectId: string;
@@ -439,3 +823,33 @@ type RunRow = {
   failureReason: string | null;
   artifactsJson: string | null;
 };
+
+type DailyBatchRow = {
+  batchId: string;
+  projectId: string;
+  localDate: string;
+  timeZone: string;
+  status: DailyReviewBatch['status'];
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  synthesisStatus: DailyReviewBatch['synthesis']['status'];
+  synthesisInvocationJson: string | null;
+  synthesisStartedAt: string | null;
+  synthesisCompletedAt: string | null;
+  synthesisUsageJson: string | null;
+  synthesisActualCost: number | null;
+  synthesisLatencyMs: number | null;
+  synthesisFailureReason: string | null;
+  synthesisArtifactsJson: string | null;
+};
+
+type DailyChunkRow = Omit<DailyReviewChunk, 'turns'> & {
+  reviewCaseId: string | null;
+  reusedRunId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  failureReason: string | null;
+};
+
+type DailyIssueRow = Omit<DailyIssue, 'sourceJudgementIds'>;

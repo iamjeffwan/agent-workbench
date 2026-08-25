@@ -134,9 +134,7 @@
         "annotationId": { "$ref": "#/$defs/nonEmpty" },
         "judgementId": { "$ref": "#/$defs/nonEmpty" },
         "annotatorId": { "$ref": "#/$defs/nonEmpty" },
-        "verdict": { "enum": ["correct", "partially_correct", "incorrect"] },
-        "correctedCategory": { "enum": ["process_efficiency", "tool_usage", "repeated_failure", "architecture", "maintainability", "performance", "security", "testability"] },
-        "correctedSummary": { "$ref": "#/$defs/nonEmpty" },
+        "verdict": { "enum": ["correct", "incorrect"] },
         "reason": { "$ref": "#/$defs/nonEmpty" },
         "missingIssue": { "$ref": "#/$defs/nonEmpty" },
         "createdAt": { "$ref": "#/$defs/nonEmpty" }

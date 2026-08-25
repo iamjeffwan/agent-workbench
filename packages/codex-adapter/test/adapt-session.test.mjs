@@ -62,6 +62,17 @@ test('adaptCodexSession maps modern records and reports unsupported input', () =
   assert.equal(observation.diagnostics.entries.length, 2);
 });
 
+test('adaptCodexSession preserves a failed terminal turn instead of reporting completion', () => {
+  const fixture = path.join(testDir, 'fixtures', 'failed-turn.jsonl');
+  const observation = adaptCodexSession(fixture);
+
+  assert.equal(observation.turns[0].status, 'failed');
+  const lifecycle = observation.turns[0].events.at(-1);
+  assert.equal(lifecycle.subtype, 'turn_failed');
+  assert.equal(lifecycle.status, 'failed');
+  assert.deepEqual(validateObservationSession(observation), { valid: true, errors: [] });
+});
+
 test('adaptCodexSession keeps one canonical turn per real user input', () => {
   const fixture = path.resolve(
     testDir,

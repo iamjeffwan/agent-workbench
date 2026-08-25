@@ -55,6 +55,20 @@ test('keeps runs immutable and human annotations append-only', async () => {
   await assert.rejects(store.appendAnnotation(annotation('annotation-2')), /Human annotation already exists/);
 });
 
+test('rejects the removed partially-correct annotation verdict', async () => {
+  const store = createInMemoryReviewStore();
+  await store.createCase(reviewCase());
+  await store.recordRun(completedResult('run-1', 'gpt-5.6-sol', 'judgement-1', 'evidence-1'));
+
+  await assert.rejects(
+    store.appendAnnotation({
+      ...annotation('annotation-partial'),
+      verdict: 'partially_correct',
+    }),
+    /allowed value/,
+  );
+});
+
 test('allows an active run to advance once and keeps its identity stable', async () => {
   const store = createInMemoryReviewStore();
   await store.createCase(reviewCase());

@@ -1,14 +1,19 @@
 import type {
+  DailyReviewRecord,
   HumanAnnotation,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   ReviewCase,
   ReviewCaseRecord,
   ReviewRunResult,
   ReviewStore,
 } from './types.js';
+import { assertDailyReviewRecord } from './daily-review.js';
 import { assertReviewCaseRecord } from './validate.js';
 
-export function createInMemoryReviewStore(): ReviewStore {
+export function createInMemoryReviewStore(): ReviewStore & import('./types.js').DailyReviewStore {
   const records = new Map<string, ReviewCaseRecord>();
+  const dailyRecords = new Map<string, DailyReviewRecord>();
 
   return {
     async createCase(reviewCase) {
@@ -63,6 +68,89 @@ export function createInMemoryReviewStore(): ReviewStore {
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
         .slice(0, limit)
         .map(clone);
+    },
+
+    async findReusableRun(query: ReusableReviewRunQuery): Promise<ReusableReviewRun | undefined> {
+      const sourceTypes = new Set(query.sourceTypes);
+      const requestedTurns = new Set(query.turns.map(turnKey));
+      for (const record of records.values()) {
+        if (record.reviewCase.projectId !== query.projectId
+          || !sourceTypes.has(record.reviewCase.sourceType)
+          || !sameTurnSet(record.reviewCase.turns, requestedTurns)) continue;
+        const run = [...record.runs].reverse().find(item => (
+          item.status === 'completed'
+          && item.invocation.provider === query.invocation.provider
+          && item.invocation.model === query.invocation.model
+          && (item.invocation.modelVersion ?? null) === (query.invocation.modelVersion ?? null)
+          && item.invocation.promptVersion === query.invocation.promptVersion
+          && item.invocation.reviewPolicyVersion === query.invocation.reviewPolicyVersion
+          && item.invocation.evidenceSchemaVersion === query.invocation.evidenceSchemaVersion
+          && completeStoredEvidence(record, item.runId)
+        ));
+        if (run) return { caseId: record.reviewCase.caseId, runId: run.runId };
+      }
+      return undefined;
+    },
+
+    async createDailyBatch(batch, chunks) {
+      if (dailyRecords.has(batch.batchId)) throw new Error(`Daily review batch already exists: ${batch.batchId}`);
+      if ([...dailyRecords.values()].some(record => (
+        record.batch.projectId === batch.projectId && record.batch.localDate === batch.localDate
+      ))) throw new Error(`Daily review batch already exists for ${batch.projectId}:${batch.localDate}`);
+      const record: DailyReviewRecord = { batch, chunks, issues: [] };
+      assertDailyReviewRecord(record);
+      dailyRecords.set(batch.batchId, clone(record));
+      return clone(record);
+    },
+
+    async findDailyBatch(projectId, localDate) {
+      const record = [...dailyRecords.values()].find(item => (
+        item.batch.projectId === projectId && item.batch.localDate === localDate
+      ));
+      return record ? clone(record) : undefined;
+    },
+
+    async getDailyBatch(batchId) {
+      const record = dailyRecords.get(batchId);
+      return record ? clone(record) : undefined;
+    },
+
+    async appendDailyChunks(batchId, chunks) {
+      const record = requiredDailyRecord(dailyRecords, batchId);
+      const next: DailyReviewRecord = { ...record, chunks: [...record.chunks, ...chunks] };
+      assertDailyReviewRecord(next);
+      dailyRecords.set(batchId, clone(next));
+      return clone(next);
+    },
+
+    async updateDailyBatch(batch) {
+      const record = requiredDailyRecord(dailyRecords, batch.batchId);
+      const next: DailyReviewRecord = { ...record, batch };
+      assertDailyReviewRecord(next);
+      dailyRecords.set(batch.batchId, clone(next));
+      return clone(next);
+    },
+
+    async updateDailyChunk(chunk) {
+      const record = requiredDailyRecord(dailyRecords, chunk.batchId);
+      if (!record.chunks.some(item => item.chunkId === chunk.chunkId)) {
+        throw new Error(`Daily review chunk does not exist: ${chunk.chunkId}`);
+      }
+      const next: DailyReviewRecord = {
+        ...record,
+        chunks: record.chunks.map(item => item.chunkId === chunk.chunkId ? chunk : item),
+      };
+      assertDailyReviewRecord(next);
+      dailyRecords.set(chunk.batchId, clone(next));
+      return clone(next);
+    },
+
+    async replaceDailyIssues(batchId, issues) {
+      const record = requiredDailyRecord(dailyRecords, batchId);
+      const next: DailyReviewRecord = { ...record, issues };
+      assertDailyReviewRecord(next);
+      dailyRecords.set(batchId, clone(next));
+      return clone(next);
     },
   };
 }
@@ -138,6 +226,34 @@ function findRecordForJudgement(
     if (record.judgements.some(item => item.judgementId === annotation.judgementId)) return { caseId, record };
   }
   throw new Error(`Judgement does not exist: ${annotation.judgementId}`);
+}
+
+function requiredDailyRecord(
+  records: Map<string, DailyReviewRecord>,
+  batchId: string,
+): DailyReviewRecord {
+  const record = records.get(batchId);
+  if (!record) throw new Error(`Daily review batch does not exist: ${batchId}`);
+  return record;
+}
+
+function completeStoredEvidence(record: ReviewCaseRecord, runId: string): boolean {
+  const judgements = record.judgements.filter(item => item.runId === runId);
+  return judgements.every(judgement => record.evidence.some(item => (
+    item.judgementId === judgement.judgementId
+      && typeof item.contentHash === 'string'
+      && item.contentHash.length > 0
+      && typeof item.cachedExcerpt === 'string'
+  )));
+}
+
+function sameTurnSet(turns: ReviewCase['turns'], requested: Set<string>): boolean {
+  return turns.length === requested.size
+    && turns.every(turn => requested.has(turnKey(turn)));
+}
+
+function turnKey(turn: ReviewCase['turns'][number]): string {
+  return `${turn.sessionId}\0${turn.turnId}`;
 }
 
 function clone<T>(value: T): T {

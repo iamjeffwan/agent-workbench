@@ -35,7 +35,7 @@
           "sessionId": { "type": "string", "minLength": 1 },
           "turnId": { "type": "string", "minLength": 1 },
           "sequence": { "type": "integer", "minimum": 0 },
-          "status": { "enum": ["completed", "aborted", "in_progress"] },
+          "status": { "enum": ["completed", "failed", "aborted", "in_progress"] },
           "userInput": { "type": "string" },
           "events": { "type": "array", "items": { "type": "object" } },
           "source": {

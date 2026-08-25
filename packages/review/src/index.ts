@@ -1,6 +1,15 @@
 export { createInMemoryReviewStore } from './store.js';
 export { createSqliteReviewStore, REVIEW_DATABASE_MIGRATIONS } from './sqlite-store.js';
 export {
+  DAILY_SYNTHESIS_OUTPUT_SCHEMA,
+  assertDailyReviewRecord,
+  assertDailySynthesisOutput,
+} from './daily-review.js';
+export type {
+  DailySynthesisModelIssue,
+  DailySynthesisModelOutput,
+} from './daily-review.js';
+export {
   DEFAULT_REVIEW_SYSTEM_PROMPT,
   REVIEW_MODEL_OUTPUT_SCHEMA,
   ReviewModelAdapterError,
@@ -63,6 +72,15 @@ export {
 } from './validate.js';
 export type {
   AnnotationVerdict,
+  DailyIssue,
+  DailyReviewBatch,
+  DailyReviewBatchStatus,
+  DailyReviewChunk,
+  DailyReviewChunkStatus,
+  DailyReviewRecord,
+  DailyReviewStore,
+  DailyReviewSynthesis,
+  DailyReviewSynthesisStatus,
   Evidence,
   EvidenceTargetType,
   HumanAnnotation,
@@ -80,6 +98,8 @@ export type {
   ReviewSourceType,
   ReviewStore,
   ReviewTurnRef,
+  ReusableReviewRun,
+  ReusableReviewRunQuery,
   Reviewability,
   ValidationIssue,
   ValidationResult,

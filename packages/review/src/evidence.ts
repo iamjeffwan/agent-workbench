@@ -54,7 +54,7 @@ export type ReviewEvidenceTurn = {
   sessionId: string;
   turnId: string;
   sequence: number;
-  status: 'completed' | 'aborted' | 'in_progress';
+  status: 'completed' | 'failed' | 'aborted' | 'in_progress';
   userInput: string;
   events: ObservationEvent[];
   source: {
